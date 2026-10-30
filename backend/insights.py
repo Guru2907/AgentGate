@@ -11,8 +11,14 @@ _HIDDEN_PATTERNS = [
     r"(?im)^.*ignore\s+previous\s+instructions.*$",
     r"(?im)^.*you\s+are\s+now.*$",
     r"(?im)^.*admin\s+mode.*$",
-    r"(?im)^.*(email|send|delete)\b.*\b[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}\b.*$",
-    r"(?im)^.*(email|send|delete)\b.*\bsandbox/.*$",
+    # Fake "tool directive" blocks: directive headers and key = value tool arguments
+    r"(?im)^.*\b(admin|system)\s+(tool\s+)?directive\b.*$",
+    r"(?im)^.*\brequired\s+tool\s+call\b.*$",
+    r"(?im)^.*\btask\s+is\s+cancell?ed\b.*$",
+    r"(?im)^\s*(tool|to|attachment)\s*=\s*\S+.*$",
+    # Imperative lines only: the line starts with the verb, so "Email: name@example.edu" is not flagged
+    r"(?im)^\s*(please\s+)?(email|send|forward|delete)\s+(?!:).*\b[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}\b.*$",
+    r"(?im)^\s*(please\s+)?(email|send|forward|delete)\s+(?!:).*\bsandbox/.*$",
 ]
 
 
