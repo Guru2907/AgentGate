@@ -3,7 +3,7 @@ import { Badge } from '@/components/ui/badge'
 import { Sheet, SheetBody, SheetContent, SheetDescription, SheetFooter, SheetHeader, SheetTitle } from '@/components/ui/sheet'
 import { VerdictBadge } from '@/components/VerdictBadge'
 import { TASK_LABELS } from '@/lib/format'
-import { TASK_POLICIES, type PolicySection } from '@/mock/rules'
+import { TASK_POLICIES, type PolicySection } from '@/policy/rules'
 
 function SectionBody({ section }: { section: PolicySection }) {
   switch (section.kind) {

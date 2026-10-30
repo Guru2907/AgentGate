@@ -6,7 +6,9 @@ import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip
 import { BrandMark } from '@/components/BrandMark'
 import { SITE_PAGES, type PageId } from '@/components/sitePages'
 import { cn } from '@/lib/utils'
+import { useAuth } from '@/state/auth'
 import { useStore } from '@/state/store'
+import { toast } from 'sonner'
 
 function useScrolledPast(px: number): boolean {
   const [past, setPast] = useState(false)
@@ -26,6 +28,7 @@ interface SiteNavbarProps {
 
 export function SiteNavbar({ page, onNavigate }: SiteNavbarProps) {
   const { pendingCount } = useStore()
+  const { user, logout } = useAuth()
   const scrolled = useScrolledPast(40)
   // Transparent only while over the Home hero.
   const overHero = page === 'home' && !scrolled
@@ -46,6 +49,7 @@ export function SiteNavbar({ page, onNavigate }: SiteNavbarProps) {
 
         <nav aria-label="Pages" className="flex shrink-0 items-center gap-2">
           {SITE_PAGES.map((p) => {
+            if (p.id !== 'home' && !user) return null
             const isActive = page === p.id
             return (
               <Tooltip key={p.id}>
@@ -56,9 +60,9 @@ export function SiteNavbar({ page, onNavigate }: SiteNavbarProps) {
                     aria-current={isActive ? 'page' : undefined}
                     onClick={() => onNavigate(p.id)}
                     className={cn(
-                      'text-foreground/85 hover:text-foreground relative gap-2 px-3 text-sm',
+                      'text-foreground/85 hover:text-foreground relative gap-2 px-3 text-sm transition-[color,background-color,box-shadow,transform] duration-200 ease-out',
                       isActive &&
-                        'bg-nav-active text-nav-active-foreground hover:bg-nav-active hover:text-nav-active-foreground after:bg-primary after:absolute after:inset-x-3 after:-bottom-px after:h-0.5 after:rounded-full',
+                        'ag-nav-ink bg-nav-active text-nav-active-foreground hover:bg-nav-active hover:text-nav-active-foreground shadow-[inset_0_1px_0_0_rgba(255,255,255,0.06)] after:bg-primary after:absolute after:inset-x-3 after:-bottom-px after:h-0.5 after:rounded-full',
                     )}
                   >
                     <p.icon aria-hidden />
@@ -79,6 +83,43 @@ export function SiteNavbar({ page, onNavigate }: SiteNavbarProps) {
               </Tooltip>
             )
           })}
+
+          {user ? (
+            <>
+              <Button
+                variant={page === 'account' ? 'secondary' : 'ghost'}
+                className="hidden sm:inline-flex"
+                onClick={() => onNavigate('account')}
+              >
+                {user.full_name.split(' ')[0]}
+              </Button>
+              <Button
+                variant="outline"
+                size="sm"
+                className="hidden sm:inline-flex"
+                onClick={async () => {
+                  try {
+                    await logout()
+                    onNavigate('home')
+                    toast.success('Signed out.')
+                  } catch {
+                    toast.error('Could not sign out. Check your connection and try again.')
+                  }
+                }}
+              >
+                Sign out
+              </Button>
+            </>
+          ) : (
+            <>
+              <Button variant="ghost" className="hidden sm:inline-flex" onClick={() => onNavigate('login')}>
+                Sign in
+              </Button>
+              <Button size="sm" className="hidden sm:inline-flex" onClick={() => onNavigate('signup')}>
+                Sign up
+              </Button>
+            </>
+          )}
         </nav>
       </div>
     </header>

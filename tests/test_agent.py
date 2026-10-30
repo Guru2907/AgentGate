@@ -76,14 +76,14 @@ def test_missing_replay_raises(replay_dir: Path, monkeypatch: pytest.MonkeyPatch
         agent.propose("summarise_resume", "t", "clean/missing.txt")
 
 
-def test_live_missing_key_falls_back_to_replay(replay_dir: Path, monkeypatch: pytest.MonkeyPatch):
+def test_live_missing_key_does_not_fall_back_to_replay(replay_dir: Path, monkeypatch: pytest.MonkeyPatch):
     monkeypatch.setenv("LLM_MODE", "live")
     monkeypatch.setenv("GROQ_API_KEY", "")
     monkeypatch.setenv("GROQ_MODEL", "")
     calls = [{"tool": "summarise", "args": {"document_id": "clean/resume_01_asha.txt"}}]
     _write_replay(replay_dir, "summarise_resume", "clean/resume_01_asha.txt", calls)
-    out = agent.propose("summarise_resume", "t", "clean/resume_01_asha.txt")
-    assert out == calls
+    with pytest.raises(RuntimeError, match="Groq live call failed"):
+        agent.propose("summarise_resume", "t", "clean/resume_01_asha.txt")
 
 
 def test_live_missing_key_without_replay_raises(replay_dir: Path, monkeypatch: pytest.MonkeyPatch):

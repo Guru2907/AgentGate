@@ -1,4 +1,4 @@
-"""Mock tools — no real side effects. Only touch sandbox/ and return text.
+"""Sandbox tool adapters. They have no real-world side effects.
 
 Must only be reached via gate.check() -> ALLOW -> tools.execute(). Never call from agent code.
 """
@@ -30,7 +30,7 @@ def _summarise(document_id: str) -> str:
 
 def _send_email(to: str, subject: str, body: str, attachment: str | None = None) -> str:
     extra = f" with attachment {attachment}" if attachment else ""
-    return f"Mock email to {to}, subject {subject!r}{extra} (not sent)"
+    return f"Sandbox email record for {to}, subject {subject!r}{extra} (not sent)"
 
 
 def _read_file(path: str) -> str:
@@ -41,8 +41,8 @@ def _read_file(path: str) -> str:
 
 
 def _delete_file(path: str) -> str:
-    # Globally denied by policy (R8); kept as a harmless stub so execute() covers every tool.
-    return f"Mock delete of {path} (nothing deleted)"
+    # Globally denied by policy (R8); kept as a harmless adapter so execute() covers every tool.
+    return f"Sandbox delete record for {path} (nothing deleted)"
 
 
 _TOOLS = {
@@ -54,5 +54,5 @@ _TOOLS = {
 
 
 def execute(call: ToolCall) -> str:
-    """Run the mock tool for an ALLOWED call and return a short text result."""
+    """Run a sandbox adapter for an ALLOWED call; no external service is contacted."""
     return _TOOLS[call.tool](**call.args)

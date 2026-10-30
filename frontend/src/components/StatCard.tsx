@@ -15,13 +15,23 @@ interface StatCardProps {
   tone: keyof typeof TONES
   value: ReactNode
   label: string
+  /** Remount key for a short tick animation (use a coarse counter, not every RAF frame). */
+  tickKey?: string | number
 }
 
-export function StatCard({ icon: Icon, tone, value, label }: StatCardProps) {
+export function StatCard({ icon: Icon, tone, value, label, tickKey }: StatCardProps) {
   return (
     <Card className="ag-hover-lift gap-3 px-4 sm:px-5">
       <div className="flex items-start justify-between gap-3">
-        <span className="text-2xl leading-none font-semibold tracking-tight tabular-nums sm:text-3xl">{value}</span>
+        <span
+          key={tickKey}
+          className={cn(
+            'text-2xl leading-none font-semibold tracking-tight tabular-nums sm:text-3xl',
+            tickKey !== undefined && 'ag-tick',
+          )}
+        >
+          {value}
+        </span>
         <Icon aria-hidden className={cn('size-5 shrink-0', TONES[tone])} />
       </div>
       <span className="text-muted-foreground text-sm">{label}</span>

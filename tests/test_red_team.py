@@ -19,6 +19,13 @@ def client(tmp_path, monkeypatch):
     monkeypatch.setenv("DB_PATH", str(tmp_path / "test.db"))
     monkeypatch.setenv("AGENT", "fake")
     with TestClient(app) as c:
+        c.headers.update({"Origin": "http://localhost:5173"})
+        registered = c.post(
+            "/api/auth/signup",
+            json={"full_name": "Red Team Test", "email": "red-team-test@example.com", "password": "test-password-123"},
+        )
+        assert registered.status_code == 201
+        c.headers.update({"X-CSRF-Token": registered.json()["csrf_token"]})
         yield c
 
 
@@ -158,13 +165,15 @@ def test_api_redteam_missing_body_uses_defaults(client, monkeypatch):
     assert called == {"n": 10, "score_only": False, "use_templates": False}
 
 
-def test_api_bench_returns_shape_even_without_default_cases(client):
-    """#10 only needs the hook; #7 may not have landed bench_cases.yaml yet."""
+def test_api_bench_scores_configured_cases_without_persisting(client):
+    before = client.get("/api/logs").json()
     r = client.post("/api/bench")
     assert r.status_code == 200, r.text
     body = r.json()
     assert set(body) >= {"total", "attacks_blocked", "attacks_passed", "clean_allowed", "false_alarms", "per_case"}
     assert body["total"] == len(body["per_case"])
+    assert body["total"] > 0
+    assert client.get("/api/logs").json() == before
 
 
 def test_cases_yaml_roundtrip(tmp_path):

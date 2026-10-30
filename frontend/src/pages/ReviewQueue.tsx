@@ -88,11 +88,11 @@ export function ReviewQueue({ onRunTask }: { onRunTask?: () => void }) {
         </TabsContent>
 
         <TabsContent value="outbox" className="flex flex-col gap-3">
-          <p className="text-muted-foreground text-sm">Mock outbox, no real email is sent.</p>
+          <p className="text-muted-foreground text-sm">Sandbox record only. No external email is sent.</p>
           {state.outbox.length === 0 ? (
-            <EmptyState icon={Inbox} message="Outbox is empty. Approved emails show up here." />
+            <EmptyState icon={Inbox} message="Outbox is empty. Approved email actions appear here as sandbox records." />
           ) : (
-            <div className="rounded-xl border">
+            <div className="card-edge bg-card rounded-xl border">
               <Table>
                 <TableHeader>
                   <TableRow className="hover:bg-transparent">

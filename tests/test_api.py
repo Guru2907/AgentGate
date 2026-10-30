@@ -14,6 +14,13 @@ def client(tmp_path, monkeypatch):
     monkeypatch.setenv("DB_PATH", str(tmp_path / "test.db"))
     monkeypatch.setenv("AGENT", "fake")
     with TestClient(app) as c:
+        c.headers.update({"Origin": "http://localhost:5173"})
+        registered = c.post(
+            "/api/auth/signup",
+            json={"full_name": "API Test", "email": "api-test@example.com", "password": "test-password-123"},
+        )
+        assert registered.status_code == 201
+        c.headers.update({"X-CSRF-Token": registered.json()["csrf_token"]})
         yield c
 
 
@@ -56,10 +63,14 @@ def test_docs_endpoint_lists_clean_and_hostile(client):
     assert "hostile/resume_h01_hidden_email.txt" in docs
 
 
-def test_llm_agent_failure_falls_back_to_fake(client, monkeypatch):
-    monkeypatch.setenv("AGENT", "llm")  # agent.py is still a stub here: must not break the demo
-    body = client.post("/api/run", json=HOSTILE).json()
-    assert body["decisions"][0]["verdict"] == "BLOCK"
+def test_llm_agent_failure_is_reported_without_fake_output(client, monkeypatch):
+    monkeypatch.setenv("AGENT", "llm")
+    monkeypatch.setenv("LLM_MODE", "live")
+    monkeypatch.setenv("GROQ_API_KEY", "")
+    monkeypatch.setenv("GROQ_MODEL", "")
+    response = client.post("/api/run", json=HOSTILE)
+    assert response.status_code == 503
+    assert response.json()["detail"] == "The AI provider is unavailable. Check the server configuration and try again."
 
 
 def test_malformed_agent_output_is_blocked_not_crashed(client, monkeypatch):

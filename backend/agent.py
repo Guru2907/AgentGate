@@ -1,10 +1,9 @@
 """LLM agent: proposes tool calls from {task, document}. Never executes tools.
 
 LLM_MODE=live   -> Groq tool calling (GROQ_API_KEY, GROQ_MODEL from .env)
-LLM_MODE=replay -> backend/replay/<doc>__<task>.json
+LLM_MODE=replay -> backend/replay/<doc>__<task>.json (explicit offline development mode)
 
-On live timeout/API error, falls back to a saved replay for that task+doc when present
-(demo stays usable if Groq or Wi-Fi dies). Never invents tool calls.
+Never substitutes saved sample output when the configured provider fails.
 """
 
 from __future__ import annotations
@@ -174,20 +173,15 @@ def _propose_replay(task: str, doc: str) -> list[dict]:
 
 def propose(task: str, text: str, doc: str) -> list[dict]:
     """Return raw proposed tool calls: [{"tool": str, "args": dict}, ...]. Never executes anything."""
-    mode = os.getenv("LLM_MODE", "replay").strip().lower()
+    mode = os.getenv("LLM_MODE", "live").strip().lower()
     if mode != "live":
         return _propose_replay(task, doc)
 
     try:
         return _propose_live(task, text, doc)
     except (APITimeoutError, APIError, OpenAIError, TimeoutError, RuntimeError) as exc:
-        # Demo robustness: if a prior live run was saved, use it instead of crashing.
-        replay = _replay_path(task, doc)
-        if replay.is_file():
-            return _propose_replay(task, doc)
         raise RuntimeError(
-            f"Groq live call failed ({type(exc).__name__}: {exc}). "
-            "Fix GROQ_API_KEY/GROQ_MODEL/network, or save a replay with try_agent.py first."
+            f"Groq live call failed ({type(exc).__name__}). Check provider configuration and connectivity."
         ) from exc
 
 

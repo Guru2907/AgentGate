@@ -1,12 +1,10 @@
-import { useEffect, useRef, useState, type ChangeEvent, type CSSProperties, type ReactNode } from 'react'
-import { toast } from 'sonner'
-import { FileLock, Play, RotateCcw, ScrollText, ShieldCheck, Syringe, TriangleAlert, Upload, UserCheck } from 'lucide-react'
+import { useEffect, useRef, useState, type CSSProperties, type ReactNode } from 'react'
+import { FileLock, Play, RotateCcw, ScrollText, ShieldCheck, Syringe, TriangleAlert, UserCheck } from 'lucide-react'
 
 import type { RunResult, TaskId } from '@/types'
 import { Alert, AlertDescription } from '@/components/ui/alert'
 import { Button } from '@/components/ui/button'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
-import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { RadioGroup, RadioGroupItem } from '@/components/ui/radio-group'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
@@ -25,8 +23,7 @@ import { VerdictBadge } from '@/components/VerdictBadge'
 import { docName, TASK_LABELS } from '@/lib/format'
 import { prefersReducedMotion } from '@/lib/usePrefersReducedMotion'
 import { cn } from '@/lib/utils'
-import { uploadedDocument } from '@/mock/documents'
-import { RULE_TITLES } from '@/mock/rules'
+import { RULE_TITLES } from '@/policy/rules'
 import { useStore, type RunOutcomeData } from '@/state/store'
 
 /** Below the xl breakpoint the result panel sits under the input card; bring it into view. */
@@ -46,7 +43,6 @@ export function RunTask({ onOpenReviewQueue, onOpenLog }: RunTaskProps) {
   const { state, updateRunSession, startRun } = useStore()
   const { task, documents, selected, phase } = state.runSession
   const [rulesOpen, setRulesOpen] = useState(false)
-  const fileInput = useRef<HTMLInputElement>(null)
   const resultRef = useRef<HTMLElement>(null)
 
   const busy = phase.kind === 'loading'
@@ -71,21 +67,6 @@ export function RunTask({ onOpenReviewQueue, onOpenLog }: RunTaskProps) {
     window.addEventListener('keydown', onKey)
     return () => window.removeEventListener('keydown', onKey)
   }, [busy, startRun])
-
-  function onFileChosen(e: ChangeEvent<HTMLInputElement>) {
-    const file = e.target.files?.[0]
-    e.target.value = ''
-    if (!file) return
-    if (!/\.(txt|pdf)$/i.test(file.name)) {
-      toast('Only .txt and .pdf documents are supported.')
-      return
-    }
-    updateRunSession({
-      documents: documents.some((d) => d.name === file.name) ? documents : [...documents, uploadedDocument(file.name)],
-      selected: file.name,
-    })
-    toast(`${file.name} added. Treated as a clean document in replay mode.`)
-  }
 
   return (
     <div className="flex flex-col gap-6">
@@ -123,8 +104,8 @@ export function RunTask({ onOpenReviewQueue, onOpenLog }: RunTaskProps) {
                     key={d.name}
                     htmlFor={`doc-${d.name}`}
                     className={cn(
-                      'hover:bg-accent flex min-w-0 cursor-pointer items-center gap-3 rounded-lg border px-3 py-2.5 font-normal transition-colors',
-                      selected === d.name && 'border-border-strong bg-accent',
+                      'ag-select-row hover:bg-accent flex min-w-0 cursor-pointer items-center gap-3 rounded-lg border px-3 py-2.5 font-normal',
+                      selected === d.name && 'border-border-strong bg-accent shadow-[inset_0_0_0_1px_var(--border-strong)]',
                     )}
                   >
                     <RadioGroupItem id={`doc-${d.name}`} value={d.name} />
@@ -136,11 +117,6 @@ export function RunTask({ onOpenReviewQueue, onOpenLog }: RunTaskProps) {
             </div>
 
             <div className="flex flex-col gap-3">
-              <Input ref={fileInput} type="file" accept=".txt,.pdf" className="hidden" onChange={onFileChosen} tabIndex={-1} />
-              <Button variant="outline" onClick={() => fileInput.current?.click()} disabled={busy}>
-                <Upload aria-hidden />
-                Upload document
-              </Button>
               <Button className="w-full" size="lg" onClick={() => start('run')} disabled={busy}>
                 {busy ? <RotateCcw aria-hidden className="animate-spin motion-reduce:animate-none" /> : <Play aria-hidden />}
                 {busy ? 'Running…' : 'Run'}
@@ -155,13 +131,13 @@ export function RunTask({ onOpenReviewQueue, onOpenLog }: RunTaskProps) {
             <Separator />
 
             <div className="flex flex-col gap-3">
-              <span className="eyebrow">Demo</span>
+              <span className="eyebrow">Gate verification</span>
               <Button variant="outline" className="text-blocked-ink hover:text-blocked-ink self-start" onClick={() => start('inject')} disabled={busy}>
                 <Syringe aria-hidden />
-                Inject attack
+                Run hostile policy test
               </Button>
               <p className="text-muted-foreground text-xs leading-relaxed">
-                Sends a hostile tool call straight to the gate, no AI involved.
+                Submits a synthetic hostile call directly to the gate. No external action is executed.
               </p>
             </div>
           </CardContent>
