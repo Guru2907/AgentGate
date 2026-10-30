@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from 'react'
+import { useNavigate } from 'react-router-dom'
 import { toast } from 'sonner'
-import { Bot, CircleCheck, RefreshCw, RotateCcw, ShieldCheck, ShieldX, Swords, TriangleAlert, Zap } from 'lucide-react'
+import { Bot, CircleCheck, RefreshCw, ScrollText, RotateCcw, ShieldCheck, ShieldX, Swords, TriangleAlert, Zap } from 'lucide-react'
 
 import type { RunResult, Verdict } from '@/types'
 import { api, ApiError, USE_MOCK, type ApiBench, type ApiRedTeam } from '@/api'
@@ -19,6 +20,7 @@ import { formatClock, taskLabel } from '@/lib/format'
 import { prefersReducedMotion } from '@/lib/usePrefersReducedMotion'
 import { cn } from '@/lib/utils'
 import { BENCH_CASES, BENCH_SUMMARY } from '@/mock/benchCases'
+import { pathOf } from '@/components/sitePages'
 import { useStore } from '@/state/store'
 
 const COUNT_MS = 1200
@@ -494,8 +496,12 @@ const PRESETS: AttackPreset[] = [
 
 function AttackPanel() {
   const { refresh } = useStore()
+  const navigate = useNavigate()
   const [busy, setBusy] = useState<string | null>(null)
   const [results, setResults] = useState<Record<string, Step[] | string>>({})
+  // Newest audit row each attack wrote, so the result can open that exact row in the Gate Log.
+  const [logIds, setLogIds] = useState<Record<string, number>>({})
+  const openLog = (logId: number) => navigate(pathOf('gate-log'), { state: { logId } })
 
   if (USE_MOCK) {
     return <EmptyState icon={Swords} className="min-h-48" message="Attacks run against the live backend. Start the app without VITE_USE_MOCK=true." />
@@ -506,15 +512,19 @@ function AttackPanel() {
     try {
       const steps = await preset.run()
       setResults((r) => ({ ...r, [preset.id]: steps }))
+      const logId = (await refresh())?.at(-1)?.id
+      if (logId) setLogIds((m) => ({ ...m, [preset.id]: logId }))
+      const action = logId ? { label: 'View in Gate Log', onClick: () => openLog(logId) } : undefined
+      const description = `Logged as #${logId ?? '?'} in the audit log.`
       const last = steps[steps.length - 1]
-      if (last?.verdict === 'BLOCK') toast.error('Blocked by the gate.', { description: last.reasons[0] })
-      else if (last?.verdict === 'REVIEW') toast.warning('Needs review: waiting for a human.')
-      else toast('Allowed.')
+      if (last?.verdict === 'BLOCK') toast.error(`Blocked by the gate: ${last.rules[0] ?? ''}`, { description, action })
+      else if (last?.verdict === 'REVIEW') toast.warning('Needs review: waiting for a human.', { description, action })
+      else toast('Allowed.', { description, action })
     } catch (err) {
       setResults((r) => ({ ...r, [preset.id]: err instanceof Error ? err.message : 'Attack failed' }))
+      void refresh()
     } finally {
       setBusy(null)
-      void refresh()
     }
   }
 
@@ -552,6 +562,14 @@ function AttackPanel() {
                     )}
                   </li>
                 ))}
+                {logIds[p.id] && (
+                  <li>
+                    <Button size="sm" variant="link" className="h-auto px-0" onClick={() => openLog(logIds[p.id])}>
+                      <ScrollText aria-hidden />
+                      Open #{logIds[p.id]} in Gate Log
+                    </Button>
+                  </li>
+                )}
               </ol>
             )}
           </Card>
