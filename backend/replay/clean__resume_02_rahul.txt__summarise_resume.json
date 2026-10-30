@@ -1,0 +1,13 @@
+{
+  "task": "summarise_resume",
+  "doc": "clean/resume_02_rahul.txt",
+  "model": "offline-synthetic",
+  "calls": [
+    {
+      "tool": "summarise",
+      "args": {
+        "document_id": "clean/resume_02_rahul.txt"
+      }
+    }
+  ]
+}
