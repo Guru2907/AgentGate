@@ -1,0 +1,22 @@
+# AgentGate policy — evaluated by backend/gate.py (deterministic, no LLM).
+# Precedence: any BLOCK rule => BLOCK; else any REVIEW rule => REVIEW; else ALLOW.
+# Unknown task or tool => BLOCK (default deny).
+
+tasks:
+  summarise_resume:
+    allowed_tools: [summarise]
+
+  email_company:
+    allowed_tools: [send_email, read_file]
+    recipients:
+      allow_domains: [college.edu, partner-company.com]
+      review_domains: [gmail.com]          # valid but risky -> REVIEW
+    files:
+      scope: ["sandbox/resumes/*"]
+      sensitive: ["sandbox/placement_list.xlsx", "sandbox/salary*"]
+    outbound_data:
+      block_patterns: [phone, email_list, id_number]   # regex detectors in gate.py
+
+global:
+  deny_tools: [delete_file]
+  max_calls_per_run: 3
