@@ -21,8 +21,7 @@ load_dotenv(ROOT / ".env")
 
 from backend.agent import next_step, propose, save_replay  # noqa: E402
 from backend.extract import extract_text  # noqa: E402
-from backend.gate import check, load_policy  # noqa: E402
-from backend.run_context import RunContext  # noqa: E402
+from backend.gate import RunContext, check, load_policy  # noqa: E402
 from backend import tools  # noqa: E402
 from backend.schemas import ToolCall  # noqa: E402
 
@@ -65,20 +64,18 @@ def _run_multistep(task: str, doc: str, text: str) -> list[dict]:
             break
         raw = calls[0]
         steps_out.append({"calls": [{k: v for k, v in raw.items() if k != "_id"}]})
-        decision = check(raw, task, policy, ctx=ctx)
+        decision = check(raw, task, policy, ctx)
         output = NOT_EXECUTED
+        record: ToolCall | dict
         try:
             record = ToolCall.model_validate(raw)
             if decision.verdict == "ALLOW":
                 output = tools.execute(record)
         except Exception as exc:
+            record = raw if isinstance(raw, dict) else {"tool": "?", "args": {}}
             output = f"Tool error: {exc}"
         call_dict = {"tool": raw.get("tool"), "args": raw.get("args") or {}}
-        sensitive = (
-            call_dict.get("tool") == "read_file"
-            and "placement_list" in str((call_dict.get("args") or {}).get("path", "")).lower()
-        )
-        ctx.record(call_dict, decision.verdict, output, sensitive=sensitive and decision.verdict == "ALLOW")
+        ctx.record(record, decision, output, policy)
         history.append({"call": call_dict, "output": output, "verdict": decision.verdict})
     return steps_out
 

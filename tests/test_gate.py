@@ -101,10 +101,10 @@ def test_read_placement_list_is_allowed_for_email_company(policy):
 
 
 def test_r9_blocks_email_after_sensitive_read(policy):
-    from backend.run_context import RunContext
+    from backend.gate import RunContext
 
     ctx = RunContext()
-    ctx.sensitive_reads.add("sandbox/placement_list.xlsx")
+    ctx.read["confidential"] = {"sandbox/placement_list.xlsx"}
     call = {
         "tool": "send_email",
         "args": {
@@ -113,14 +113,14 @@ def test_r9_blocks_email_after_sensitive_read(policy):
             "body": "Short summary of the placement list.",
         },
     }
-    d = check(call, "email_company", policy, ctx=ctx)
+    d = check(call, "email_company", policy, ctx)
     assert d.verdict == "BLOCK"
-    assert "R9_SENSITIVE_EXFIL" in d.rules
+    assert "R9_TAINTED_EGRESS" in d.rules
     assert "R2_RECIPIENT_NOT_ALLOWED" not in d.rules
 
 
 def test_email_without_prior_sensitive_read_still_allowed(policy):
-    from backend.run_context import RunContext
+    from backend.gate import RunContext
 
     call = {
         "tool": "send_email",
@@ -131,7 +131,7 @@ def test_email_without_prior_sensitive_read_still_allowed(policy):
             "attachment": "sandbox/resumes/rahul_menon.txt",
         },
     }
-    assert check(call, "email_company", policy, ctx=RunContext()).verdict == "ALLOW"
+    assert check(call, "email_company", policy, RunContext()).verdict == "ALLOW"
 
 
 def test_unknown_task_is_denied_by_default(policy):
