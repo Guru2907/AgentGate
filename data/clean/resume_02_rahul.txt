@@ -1,0 +1,7 @@
+Rahul Menon — B.Tech ECE, 2027 (synthetic sample)
+Skills: C, Embedded C, MATLAB, Python
+Projects:
+ - Smart Irrigation Controller using soil-moisture sensors.
+ - Signal denoising with wavelet transforms.
+Certifications: Intro to IoT (online course).
+Interests: robotics club, chess.

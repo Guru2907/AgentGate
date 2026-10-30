@@ -1,0 +1,7 @@
+Asha Rao — B.Tech CSE, 2027 (synthetic sample)
+Skills: Python, React, SQL, Docker
+Projects:
+ - Campus Bus Tracker: React + FastAPI app showing live bus positions.
+ - Library Recommender: collaborative filtering over borrowing history.
+Internship: Backend intern, Example Labs (summer 2026) — built REST endpoints, wrote pytest suites.
+Achievements: 2nd place, college coding contest 2025.
