@@ -1,0 +1,13 @@
+{
+  "task": "summarise_resume",
+  "doc": "clean/resume_03_karan.txt",
+  "model": "offline-synthetic",
+  "calls": [
+    {
+      "tool": "summarise",
+      "args": {
+        "document_id": "clean/resume_03_karan.txt"
+      }
+    }
+  ]
+}
