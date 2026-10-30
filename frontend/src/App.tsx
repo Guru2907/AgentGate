@@ -1,10 +1,11 @@
-import { useCallback, useEffect, useState, type ReactNode } from 'react'
+import { useEffect, type ReactNode } from 'react'
+import { BrowserRouter, Navigate, Route, Routes, useLocation, useNavigate } from 'react-router-dom'
 
 import { Toaster } from '@/components/ui/sonner'
 import { TooltipProvider } from '@/components/ui/tooltip'
 import { ReplayModePill } from '@/components/ReplayModePill'
 import { SiteNavbar } from '@/components/SiteNavbar'
-import { SITE_PAGES, type PageId } from '@/components/sitePages'
+import { pathFromLegacyHash, pathOf } from '@/components/sitePages'
 import { AttackBench } from '@/pages/AttackBench'
 import { GateLog } from '@/pages/GateLog'
 import { Home } from '@/pages/Home'
@@ -12,78 +13,77 @@ import { ReviewQueue } from '@/pages/ReviewQueue'
 import { RunTask } from '@/pages/RunTask'
 import { StoreProvider } from '@/state/store'
 
-function AppPage({ children }: { children: ReactNode }) {
-  return <main className="mx-auto max-w-[75rem] px-4 pt-8 pb-24 sm:px-8 sm:pt-12">{children}</main>
+function LandingLayout() {
+  const navigate = useNavigate()
+  useEffect(() => {
+    window.scrollTo(0, 0)
+  }, [])
+  return (
+    <div className="app-atmosphere min-h-screen">
+      <SiteNavbar />
+      <Home onTryDemo={() => navigate(pathOf('run-task'))} />
+    </div>
+  )
 }
 
-// Hash routing (#/run-task) keeps the page across refresh and makes demo links shareable.
-function pageFromHash(): PageId {
-  const id = window.location.hash.replace(/^#\/?/, '')
-  return SITE_PAGES.some((p) => p.id === id) ? (id as PageId) : 'home'
+/** Fixed nav + one scroll container per page. Keying on the path remounts it, so every page starts at the top. */
+function AppLayout({ children }: { children: ReactNode }) {
+  const { pathname } = useLocation()
+  return (
+    <div className="app-atmosphere flex h-dvh flex-col overflow-hidden">
+      <SiteNavbar />
+      <main key={pathname} className="ag-page-fade min-h-0 flex-1 overflow-y-auto">
+        <div className="mx-auto max-w-[75rem] px-4 pt-8 pb-24 sm:px-8 sm:pt-12">{children}</div>
+      </main>
+    </div>
+  )
+}
+
+function RunTaskRoute() {
+  const navigate = useNavigate()
+  return (
+    <RunTask
+      onOpenReviewQueue={() => navigate(pathOf('review-queue'))}
+      onOpenLog={(id) => navigate(pathOf('gate-log'), { state: { logId: id } })}
+    />
+  )
+}
+
+function GateLogRoute() {
+  const { state } = useLocation()
+  return <GateLog focusLogId={(state as { logId?: number } | null)?.logId ?? null} />
+}
+
+function ReviewQueueRoute() {
+  const navigate = useNavigate()
+  return <ReviewQueue onRunTask={() => navigate(pathOf('run-task'))} />
+}
+
+/** Old links like /#/run-task keep working. */
+function LegacyHashRedirect() {
+  const { hash } = useLocation()
+  const target = pathFromLegacyHash(hash)
+  return target ? <Navigate to={target} replace /> : <LandingLayout />
 }
 
 export default function App() {
-  const [page, setPage] = useState<PageId>(pageFromHash)
-  // Log entry to open when landing on Gate Log from a run result.
-  const [focusLogId, setFocusLogId] = useState<number | null>(null)
-
-  const navigate = useCallback((next: PageId, opts?: { logId?: number }) => {
-    setFocusLogId(opts?.logId ?? null)
-    window.scrollTo(0, 0)
-    setPage(next)
-    const hash = next === 'home' ? '' : `#/${next}`
-    if (window.location.hash !== hash) window.history.pushState(null, '', hash || window.location.pathname)
-  }, [])
-
-  useEffect(() => {
-    const onHashChange = () => {
-      setFocusLogId(null)
-      setPage(pageFromHash())
-    }
-    window.addEventListener('hashchange', onHashChange)
-    window.addEventListener('popstate', onHashChange)
-    return () => {
-      window.removeEventListener('hashchange', onHashChange)
-      window.removeEventListener('popstate', onHashChange)
-    }
-  }, [])
-
-  const pages: Record<PageId, ReactNode> = {
-    home: <Home onTryDemo={() => navigate('run-task')} />,
-    'run-task': (
-      <AppPage>
-        <RunTask onOpenReviewQueue={() => navigate('review-queue')} onOpenLog={(id) => navigate('gate-log', { logId: id })} />
-      </AppPage>
-    ),
-    'gate-log': (
-      <AppPage>
-        <GateLog focusLogId={focusLogId} />
-      </AppPage>
-    ),
-    'review-queue': (
-      <AppPage>
-        <ReviewQueue onRunTask={() => navigate('run-task')} />
-      </AppPage>
-    ),
-    'attack-bench': (
-      <AppPage>
-        <AttackBench />
-      </AppPage>
-    ),
-  }
-
   return (
-    <StoreProvider>
-      <TooltipProvider>
-        <div className="app-atmosphere min-h-screen">
-          <SiteNavbar page={page} onNavigate={navigate} />
-          <div key={page} className="ag-page-fade">
-            {pages[page]}
-          </div>
-        </div>
-        <ReplayModePill />
-        <Toaster position="bottom-right" />
-      </TooltipProvider>
-    </StoreProvider>
+    <BrowserRouter>
+      <StoreProvider>
+        <TooltipProvider>
+          <Routes>
+            <Route path="/" element={<LegacyHashRedirect />} />
+            <Route path="/app" element={<Navigate to={pathOf('run-task')} replace />} />
+            <Route path="/app/run" element={<AppLayout><RunTaskRoute /></AppLayout>} />
+            <Route path="/app/log" element={<AppLayout><GateLogRoute /></AppLayout>} />
+            <Route path="/app/review" element={<AppLayout><ReviewQueueRoute /></AppLayout>} />
+            <Route path="/app/bench" element={<AppLayout><AttackBench /></AppLayout>} />
+            <Route path="*" element={<Navigate to="/" replace />} />
+          </Routes>
+          <ReplayModePill />
+          <Toaster position="bottom-right" />
+        </TooltipProvider>
+      </StoreProvider>
+    </BrowserRouter>
   )
 }
