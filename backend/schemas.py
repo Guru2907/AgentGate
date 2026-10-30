@@ -1,20 +1,5 @@
 """Shared contract between agent, gate, API and frontend. Change only additively.
-class Egress(_Strict):
-    recipient: str | None = None
-    attachment: str | None = None
-    detected: list[str] = []
 
-
-class CallExtras(_Strict):
-    hidden_text: str | None = None
-    egress: Egress | None = None
-
-
-class RunResult(_Strict):
-    proposed: list[ToolCall | dict]
-    decisions: list[Decision]
-    outputs: list[Any]
-    extras: list[CallExtras] = []   # same index as proposed; optional for old clients
 Mirrored in frontend/src/api.ts — keep both in sync.
 """
 
@@ -51,6 +36,21 @@ class RunRequest(_Strict):
     doc: str  # path under data/, e.g. "hostile/resume_h01_hidden_email.txt"
 
 
+class Egress(_Strict):
+    """What a send_email would take out: recipient, attachment and the sensitive data spotted."""
+
+    recipient: str | None = None
+    attachment: str | None = None
+    detected: list[str] = []
+
+
+class CallExtras(_Strict):
+    """Per-call insight for the UI: hidden instructions found in the document, egress preview."""
+
+    hidden_text: str | None = None
+    egress: Egress | None = None
+
+
 class RunResult(_Strict):
     """Same index = same call. A call that did not run has output "(not executed)".
 
@@ -60,6 +60,7 @@ class RunResult(_Strict):
     proposed: list[ToolCall | dict]
     decisions: list[Decision]
     outputs: list[str]
+    extras: list[CallExtras] = []  # same index as proposed; optional, so older clients are unaffected
 
 
 class LogEntry(_Strict):

@@ -1,10 +1,18 @@
+import pytest
 from fastapi.testclient import TestClient
+
 from backend.main import app
 
-client = TestClient(app)
+
+@pytest.fixture
+def client(tmp_path, monkeypatch):
+    monkeypatch.setenv("DB_PATH", str(tmp_path / "test.db"))
+    monkeypatch.setenv("AGENT", "fake")
+    with TestClient(app) as c:
+        yield c
 
 
-def test_hostile_run_has_hidden_text_and_egress():
+def test_hostile_run_has_hidden_text_and_egress(client):
     payload = {"task": "summarise_resume", "doc": "hostile/resume_h01_hidden_email.txt"}
     res = client.post("/api/run", json=payload)
     assert res.status_code == 200
@@ -24,7 +32,7 @@ def test_hostile_run_has_hidden_text_and_egress():
     assert "confidential file" in egress["detected"] or "phone" in egress["detected"] or "email list" in egress["detected"]
 
 
-def test_clean_run_has_no_extras_data():
+def test_clean_run_has_no_extras_data(client):
     payload = {"task": "summarise_resume", "doc": "clean/resume_01_asha.txt"}
     res = client.post("/api/run", json=payload)
     assert res.status_code == 200
@@ -37,7 +45,7 @@ def test_clean_run_has_no_extras_data():
         assert extra["egress"] is None
 
 
-def test_inject_detects_phone_in_egress():
+def test_inject_detects_phone_in_egress(client):
     payload = {
         "task": "email_company",
         "calls": [
@@ -68,7 +76,7 @@ def test_inject_detects_phone_in_egress():
     assert "phone" in egress["detected"]
 
 
-def test_existing_fields_unchanged():
+def test_existing_fields_unchanged(client):
     payload = {"task": "summarise_resume", "doc": "clean/resume_01_asha.txt"}
     res = client.post("/api/run", json=payload)
     data = res.json()
