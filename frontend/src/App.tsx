@@ -1,36 +1,65 @@
-import { useState } from 'react'
+import { useState, type ReactNode } from 'react'
 
-import { AppSidebar, type PageId } from '@/components/AppSidebar'
-import { SidebarInset, SidebarProvider } from '@/components/ui/sidebar'
 import { Toaster } from '@/components/ui/sonner'
 import { TooltipProvider } from '@/components/ui/tooltip'
-import AttackBench from '@/pages/AttackBench'
-import GateLog from '@/pages/GateLog'
-import ReviewQueue from '@/pages/ReviewQueue'
-import RunTask from '@/pages/RunTask'
+import { ReplayModePill } from '@/components/ReplayModePill'
+import { SiteNavbar } from '@/components/SiteNavbar'
+import type { PageId } from '@/components/sitePages'
+import { AttackBench } from '@/pages/AttackBench'
+import { GateLog } from '@/pages/GateLog'
+import { Home } from '@/pages/Home'
+import { ReviewQueue } from '@/pages/ReviewQueue'
+import { RunTask } from '@/pages/RunTask'
+import { StoreProvider } from '@/state/store'
 
-const SCREENS: Record<PageId, () => React.JSX.Element> = {
-  run: RunTask,
-  log: GateLog,
-  review: ReviewQueue,
-  bench: AttackBench,
+function AppPage({ children }: { children: ReactNode }) {
+  return <main className="mx-auto max-w-[75rem] px-8 pt-12 pb-24">{children}</main>
 }
 
 export default function App() {
-  const [page, setPage] = useState<PageId>('run')
-  const Screen = SCREENS[page]
+  const [page, setPage] = useState<PageId>('home')
+
+  function navigate(next: PageId) {
+    window.scrollTo(0, 0)
+    setPage(next)
+  }
+
+  const pages: Record<PageId, ReactNode> = {
+    home: <Home onTryDemo={() => navigate('run-task')} />,
+    'run-task': (
+      <AppPage>
+        <RunTask onOpenReviewQueue={() => navigate('review-queue')} />
+      </AppPage>
+    ),
+    'gate-log': (
+      <AppPage>
+        <GateLog />
+      </AppPage>
+    ),
+    'review-queue': (
+      <AppPage>
+        <ReviewQueue />
+      </AppPage>
+    ),
+    'attack-bench': (
+      <AppPage>
+        <AttackBench />
+      </AppPage>
+    ),
+  }
 
   return (
-    <TooltipProvider>
-      <SidebarProvider>
-        <AppSidebar page={page} onNavigate={setPage} />
-        <SidebarInset className="bg-white">
-          <main className="p-8">
-            <Screen />
-          </main>
-        </SidebarInset>
-      </SidebarProvider>
-      <Toaster />
-    </TooltipProvider>
+    <StoreProvider>
+      <TooltipProvider>
+        <div className="app-atmosphere min-h-screen">
+          <SiteNavbar page={page} onNavigate={navigate} />
+          <div key={page} className="ag-page-fade">
+            {pages[page]}
+          </div>
+        </div>
+        <ReplayModePill />
+        <Toaster position="bottom-right" />
+      </TooltipProvider>
+    </StoreProvider>
   )
 }

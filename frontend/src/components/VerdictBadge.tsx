@@ -1,22 +1,38 @@
-import { AlertTriangle, CheckCircle2, XCircle } from 'lucide-react'
+import { CircleCheck, CircleX, TriangleAlert, type LucideIcon } from 'lucide-react'
 
-import type { Verdict } from '@/api'
-import { Badge } from '@/components/ui/badge'
+import type { Verdict } from '@/types'
+import { VERDICT_LABELS } from '@/lib/format'
 import { cn } from '@/lib/utils'
 
-// ALLOW green / BLOCK red / REVIEW amber — always with a text label (docs/DESIGN.md B5–B6).
-const STYLES: Record<Verdict, { label: string; className: string; Icon: typeof CheckCircle2 }> = {
-  ALLOW: { label: 'ALLOWED', className: 'bg-[#DCFCE7] text-[#166534] border-[#16A34A]', Icon: CheckCircle2 },
-  BLOCK: { label: 'BLOCKED', className: 'bg-[#FEE2E2] text-[#991B1B] border-[#DC2626]', Icon: XCircle },
-  REVIEW: { label: 'NEEDS REVIEW', className: 'bg-[#FEF3C7] text-[#92400E] border-[#D97706]', Icon: AlertTriangle },
+export const VERDICT_STYLES: Record<Verdict, { icon: LucideIcon; badge: string; ink: string; dot: string; glow: string }> = {
+  ALLOW: { icon: CircleCheck, badge: 'bg-allowed-soft text-allowed-ink border-allowed/40', ink: 'text-allowed-ink', dot: 'text-allowed', glow: 'glow-allowed' },
+  BLOCK: { icon: CircleX, badge: 'bg-blocked-soft text-blocked-ink border-blocked/40', ink: 'text-blocked-ink', dot: 'text-blocked', glow: 'glow-blocked' },
+  REVIEW: { icon: TriangleAlert, badge: 'bg-review-soft text-review-ink border-review/40', ink: 'text-review-ink', dot: 'text-review', glow: 'glow-review' },
 }
 
-export function VerdictBadge({ verdict, className }: { verdict: Verdict; className?: string }) {
-  const { label, className: style, Icon } = STYLES[verdict]
+interface VerdictBadgeProps {
+  verdict: Verdict
+  size?: 'sm' | 'lg'
+  /** Soft verdict-coloured glow, used only behind the Gate decision badge. */
+  glow?: boolean
+  className?: string
+}
+
+/** Verdict label + icon + colour. Colour is never the only carrier of meaning. */
+export function VerdictBadge({ verdict, size = 'sm', glow = false, className }: VerdictBadgeProps) {
+  const { icon: Icon, badge, dot, glow: glowClass } = VERDICT_STYLES[verdict]
   return (
-    <Badge variant="outline" className={cn('gap-1 font-semibold', style, className)}>
-      <Icon className="size-3.5" />
-      {label}
-    </Badge>
+    <span
+      className={cn(
+        'inline-flex w-fit shrink-0 items-center gap-1.5 rounded-md border font-semibold tracking-wide whitespace-nowrap uppercase',
+        size === 'sm' ? 'px-2 py-0.5 text-2xs' : 'gap-2 px-3 py-1 text-base',
+        badge,
+        glow && glowClass,
+        className,
+      )}
+    >
+      <Icon aria-hidden className={cn(size === 'sm' ? 'size-3.5' : 'size-5', dot)} />
+      {VERDICT_LABELS[verdict]}
+    </span>
   )
 }
