@@ -14,7 +14,7 @@ const STEPS: { title: string; text: string; icon: LucideIcon | null }[] = [
   { title: 'Tool', text: 'Only approved actions run, in a sandbox.', icon: Wrench },
 ]
 
-export function HowItWorks({ onTryDemo }: { onTryDemo: () => void }) {
+export function HowItWorks({ onOpenWorkspace }: { onOpenWorkspace: () => void }) {
   const [ref, inView] = useInView<HTMLElement>()
 
   return (
@@ -62,11 +62,11 @@ export function HowItWorks({ onTryDemo }: { onTryDemo: () => void }) {
         ))}
       </ol>
       <div className="ag-reveal flex flex-col items-center gap-3" style={{ '--ag-i': 5 } as CSSProperties}>
-        <Button size="lg" onClick={onTryDemo}>
-          Try the demo
+        <Button size="lg" onClick={onOpenWorkspace}>
+          Open workspace
           <ArrowRight aria-hidden />
         </Button>
-        <p className="text-muted-foreground text-xs">Replay mode. No real email is sent.</p>
+        <p className="text-muted-foreground text-xs">Sign in to run tasks in your isolated workspace.</p>
       </div>
     </section>
   )

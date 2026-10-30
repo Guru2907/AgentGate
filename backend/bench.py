@@ -6,8 +6,6 @@ accept an extra case list (issue #10 red-team) without forking the scorer.
 
 from __future__ import annotations
 
-import os
-import tempfile
 from pathlib import Path
 from typing import Any
 
@@ -15,7 +13,7 @@ import yaml
 
 ROOT = Path(__file__).resolve().parents[1]
 DATA = ROOT / "data"
-DEFAULT_CASES_PATH = DATA / "bench_cases.yaml"
+DEFAULT_CASES_PATH = DATA / "generated" / "cases.yaml"
 DOC_PREFIXES = ("clean/", "hostile/", "generated/")
 DOC_TYPES = (".txt", ".pdf")
 
@@ -78,12 +76,12 @@ def _score_case(case: dict, propose) -> dict[str, Any]:
 
     if case.get("calls"):
         doc = str(case.get("doc") or "(injected)")
-        result = main_mod._process(task, doc, list(case["calls"]), "inject")
+        result = main_mod._process(task, doc, list(case["calls"]), "inject", persist=False, execute_tools=False)
     elif case.get("doc"):
         doc = str(case["doc"]).replace("\\", "/")
         text = _read_doc(_resolve_doc(doc))
         raw_calls = propose(task, text, doc)
-        result = main_mod._process(task, doc, raw_calls, "run")
+        result = main_mod._process(task, doc, raw_calls, "run", persist=False, execute_tools=False)
     else:
         raise ValueError(f"case {name!r} needs either 'doc' or 'calls'")
 
@@ -123,34 +121,22 @@ def _summarise(per_case: list[dict]) -> dict[str, Any]:
 
 
 def run_cases(cases: list[dict], *, propose=None) -> dict:
-    """Score an arbitrary case list with a temporary DB (does not touch the real audit log).
+    """Score cases through the gate without persisting records or executing tools.
 
     Doc cases use propose(task, text, doc) -> raw calls (defaults to main._propose).
     Call cases go straight to _process like /api/inject.
     """
-    from backend import db
     from backend import main as main_mod
 
     if propose is None:
         propose = main_mod._propose
 
-    prev_db = os.environ.get("DB_PATH")
-    with tempfile.TemporaryDirectory(prefix="agentgate-bench-") as tmp:
-        os.environ["DB_PATH"] = str(Path(tmp) / "bench.db")
-        db.init_db()
-        try:
-            per_case = [_score_case(case, propose) for case in cases]
-        finally:
-            if prev_db is None:
-                os.environ.pop("DB_PATH", None)
-            else:
-                os.environ["DB_PATH"] = prev_db
-
+    per_case = [_score_case(case, propose) for case in cases]
     return _summarise(per_case)
 
 
 def run_bench(extra_cases: list[dict] | None = None, cases_path: Path | None = None) -> dict:
-    """Load the default bench case list (#7), optionally append extra cases (#10), and score."""
+    """Load the configured synthetic cases, optionally append more, and score."""
     path = cases_path or DEFAULT_CASES_PATH
     cases: list[dict] = load_cases(path) if path.is_file() else []
     if extra_cases:
