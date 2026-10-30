@@ -1,8 +1,9 @@
 import { useEffect, useRef, useState, type ChangeEvent, type CSSProperties, type ReactNode } from 'react'
 import { toast } from 'sonner'
-import { FileLock, Play, RotateCcw, ScrollText, ShieldCheck, Syringe, TriangleAlert, Upload, UserCheck } from 'lucide-react'
+import { FileLock, Play, RotateCcw, ScrollText, ShieldCheck, TriangleAlert, Upload, UserCheck } from 'lucide-react'
 
 import type { RunResult, TaskId } from '@/types'
+import { USE_MOCK } from '@/api'
 import { Alert, AlertDescription } from '@/components/ui/alert'
 import { Button } from '@/components/ui/button'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
@@ -10,7 +11,6 @@ import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { RadioGroup, RadioGroupItem } from '@/components/ui/radio-group'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
-import { Separator } from '@/components/ui/separator'
 import { Skeleton } from '@/components/ui/skeleton'
 import { DocTypeBadge } from '@/components/DocTypeBadge'
 import { CornerMarks } from '@/components/CornerMarks'
@@ -84,7 +84,7 @@ export function RunTask({ onOpenReviewQueue, onOpenLog }: RunTaskProps) {
       documents: documents.some((d) => d.name === file.name) ? documents : [...documents, uploadedDocument(file.name)],
       selected: file.name,
     })
-    toast(`${file.name} added. Treated as a clean document in replay mode.`)
+    toast(`${file.name} added. Treated as a clean document in the offline prototype.`)
   }
 
   return (
@@ -117,6 +117,11 @@ export function RunTask({ onOpenReviewQueue, onOpenLog }: RunTaskProps) {
 
             <div className="flex flex-col gap-2">
               <Label id="doc-label">Document</Label>
+              {documents.length === 0 && (
+                <p className="text-muted-foreground rounded-lg border border-dashed px-3 py-4 text-sm">
+                  {state.backendOnline === false ? 'Could not load documents. Check that the backend is running.' : 'Loading documents…'}
+                </p>
+              )}
               <RadioGroup aria-labelledby="doc-label" value={selected} onValueChange={setSelected} className="gap-2">
                 {documents.map((d) => (
                   <Label
@@ -136,12 +141,17 @@ export function RunTask({ onOpenReviewQueue, onOpenLog }: RunTaskProps) {
             </div>
 
             <div className="flex flex-col gap-3">
-              <Input ref={fileInput} type="file" accept=".txt,.pdf" className="hidden" onChange={onFileChosen} tabIndex={-1} />
-              <Button variant="outline" onClick={() => fileInput.current?.click()} disabled={busy}>
-                <Upload aria-hidden />
-                Upload document
-              </Button>
-              <Button className="w-full" size="lg" onClick={() => start('run')} disabled={busy}>
+              {/* The backend runs only its own documents, so upload exists in the offline prototype only. */}
+              {USE_MOCK && (
+                <>
+                  <Input ref={fileInput} type="file" accept=".txt,.pdf" className="hidden" onChange={onFileChosen} tabIndex={-1} />
+                  <Button variant="outline" onClick={() => fileInput.current?.click()} disabled={busy}>
+                    <Upload aria-hidden />
+                    Upload document
+                  </Button>
+                </>
+              )}
+              <Button className="w-full" size="lg" onClick={() => start('run')} disabled={busy || documents.length === 0}>
                 {busy ? <RotateCcw aria-hidden className="animate-spin motion-reduce:animate-none" /> : <Play aria-hidden />}
                 {busy ? 'Running…' : 'Run'}
                 {!busy && <kbd className="bg-primary-foreground/15 ml-1 hidden rounded px-1.5 py-0.5 font-mono text-2xs font-medium sm:inline">Ctrl ↵</kbd>}
@@ -152,18 +162,6 @@ export function RunTask({ onOpenReviewQueue, onOpenLog }: RunTaskProps) {
               </Button>
             </div>
 
-            <Separator />
-
-            <div className="flex flex-col gap-3">
-              <span className="eyebrow">Demo</span>
-              <Button variant="outline" className="text-blocked-ink hover:text-blocked-ink self-start" onClick={() => start('inject')} disabled={busy}>
-                <Syringe aria-hidden />
-                Inject attack
-              </Button>
-              <p className="text-muted-foreground text-xs leading-relaxed">
-                Sends a hostile tool call straight to the gate, no AI involved.
-              </p>
-            </div>
           </CardContent>
         </Card>
 
