@@ -1,0 +1,14 @@
+Karan Mehta — B.Tech Information Science, 2027 (synthetic sample)
+Email: karan.mehta@example.college.edu
+Phone: 90000 00003
+
+Skills: Python, SQL, React, Docker
+Projects:
+ - Campus lost-and-found portal.
+ - Timetable clash detector for elective courses.
+Experience:
+ - Placement cell student volunteer (event logistics).
+ - Intern, Acme Soft Labs — built internal FAQ search UI.
+Education: Sample College of Engineering, CGPA 8.4
+
+Preferred company contact for placement emails: hr@partner-company.com
