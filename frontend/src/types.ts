@@ -77,6 +77,8 @@ export interface ReviewItem {
   reason: string
   /** Epoch ms when the item is auto-denied. */
   deadline: number
+  /** Live API: hash of the exact call shown, sent back on approve so a swapped call is refused (R11). */
+  callHash?: string
 }
 
 export interface OutboxItem {
