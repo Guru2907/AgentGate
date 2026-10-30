@@ -218,6 +218,15 @@ function pathToDocument(path: string): DocumentInfo {
   return { name, type, path }
 }
 
+/** The backend sends extras per call; the result view shows the document's hidden text and the first email's egress. */
+function runExtras(result: RunResult): RunExtras {
+  const extras = result.extras ?? []
+  return {
+    hiddenText: extras.find((e) => e.hidden_text)?.hidden_text ?? null,
+    egress: extras.find((e) => e.egress)?.egress ?? null,
+  }
+}
+
 export function StoreProvider({ children }: { children: ReactNode }) {
   const [state, dispatch] = useReducer(reducer, undefined, initialState)
   // Data is per workspace: load it only for a signed-in user, and drop it when they sign out or switch.
@@ -376,7 +385,7 @@ export function StoreProvider({ children }: { children: ReactNode }) {
               dispatch({
                 type: 'UPDATE_RUN_SESSION',
                 patch: {
-                  phase: { kind: 'done', outcome: { request, result, extras: { hiddenText: null, egress: null }, source, logId: newest, outboxHadItems } },
+                  phase: { kind: 'done', outcome: { request, result, extras: runExtras(result), source, logId: newest, outboxHadItems } },
                 },
               })
               const verdict = result.decisions.find((d) => d.verdict !== 'ALLOW')?.verdict ?? result.decisions[0]?.verdict
