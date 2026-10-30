@@ -4,7 +4,8 @@ import type { LogEntry, RunRequest, RunResult, TaskId } from '@/types'
 import { mockRun as prototypeMockRun } from '@/lib/mockGate'
 import { RUN_DOCUMENTS } from '@/mock/documents'
 
-export const USE_MOCK = true
+// Mock by default; start the dev server with VITE_USE_MOCK=false to use the real backend.
+export const USE_MOCK = import.meta.env.VITE_USE_MOCK !== 'false'
 
 export type { LogEntry, RunRequest, RunResult, TaskId }
 export type Verdict = 'ALLOW' | 'BLOCK' | 'REVIEW'
