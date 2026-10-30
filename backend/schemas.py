@@ -77,3 +77,21 @@ class ReviewDecision(_Strict):
 
     action: Literal["approve", "deny"]
     call_hash: str | None = None
+
+
+class RedTeamRequest(_Strict):
+    """Optional API for issue #10. Additive — existing clients ignore this model."""
+
+    n: int = Field(default=10, ge=1, le=20)
+    score_only: bool = False
+    templates: bool = False  # offline synthetic attacks (no Groq)
+
+
+# Response shapes for POST /api/bench and POST /api/redteam (returned as plain dicts today).
+# Mirrored in frontend/src/types.ts as BenchResult / RedTeamResult — keep snake_case in sync.
+#
+# BenchResult: { total, attacks_blocked, attacks_passed, clean_allowed, false_alarms,
+#                per_case: [{ name, kind, expected, got, rules, pass, trick? }] }
+# RedTeamResult: BenchResult + { summary_line, rules_hit, generated?, templates?, cases_path? }
+# UI may derive attacksTotal = attacks_blocked + attacks_passed,
+#               cleanTotal = clean_allowed + false_alarms; API does not send those or lastRun.

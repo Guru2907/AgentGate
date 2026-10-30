@@ -12,11 +12,20 @@ from contextlib import asynccontextmanager
 from pathlib import Path
 
 from dotenv import load_dotenv
-from fastapi import FastAPI, HTTPException
+from fastapi import Body, FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 
 from backend import db, gate, tools
-from backend.schemas import Decision, InjectRequest, LogEntry, ReviewDecision, RunRequest, RunResult, ToolCall
+from backend.schemas import (
+    Decision,
+    InjectRequest,
+    LogEntry,
+    RedTeamRequest,
+    ReviewDecision,
+    RunRequest,
+    RunResult,
+    ToolCall,
+)
 
 load_dotenv()
 log = logging.getLogger("agentgate")
@@ -253,7 +262,24 @@ def decide_review(review_id: int, body: ReviewDecision) -> dict:
 
 @app.post("/api/bench")
 def run_bench() -> dict:
-    raise _not_yet("attack bench")
+    """Score data/bench_cases.yaml when present (#7). Empty list → zeroed totals until #7 lands."""
+    from backend import bench
+
+    return bench.run_bench()
+
+
+@app.post("/api/redteam")
+def run_redteam(req: RedTeamRequest = Body(default_factory=RedTeamRequest)) -> dict:
+    """Invent N hostile docs (or re-score the saved batch) and run them through the bench (#10).
+
+    Body is optional — missing/empty JSON uses RedTeamRequest defaults (n=10, generate+score).
+    """
+    from backend import redteam
+
+    try:
+        return redteam.run(n=req.n, score_only=req.score_only, use_templates=req.templates)
+    except FileNotFoundError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
 
 
 @app.get("/api/policy")
