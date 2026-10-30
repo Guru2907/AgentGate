@@ -15,10 +15,24 @@ tasks:
     files:
       scope: ["sandbox/resumes/*"]
 
+  placement_report:                        # staff task that may READ confidential files
+    allowed_tools: [read_file, send_email]
+    recipients:
+      allow_domains: [college.edu, partner-company.com]
+    files:
+      scope: ["sandbox/resumes/*", "sandbox/placement_list.xlsx", "sandbox/payroll.csv"]
+
 global:
   deny_tools: [delete_file]                # R8: denied for every task
-  sensitive_files:                         # R4: may never be read or sent, any task
+  sensitive_files:                         # R4: may never be attached or deleted, any task
     - "sandbox/placement_list.xlsx"
     - "sandbox/salary*"
     - "*payroll*"
-  max_calls_per_run: 3
+  data_labels:                             # R9: what content counts as once it has been read
+    confidential: ["sandbox/placement_list.xlsx", "sandbox/salary*", "*payroll*"]
+    personal: ["sandbox/resumes/*"]
+  sensitive_patterns:                      # R5/R10: private data that must not leave (also when encoded)
+    phone: '(?<!\d)(?:\+?91[\s-]?)?[6-9]\d{4}[\s-]?\d{5}(?!\d)'
+    id_number: '(?<!\d)\d{4}[\s-]?\d{4}[\s-]?\d{4}(?!\d)'
+    email_list: '(?:[\w.+-]+@[\w-]+\.[\w.]+[\s,;]+){2,}[\w.+-]+@[\w-]+\.[\w.]+'
+  max_calls_per_run: 3                     # R7: egress budget per run
