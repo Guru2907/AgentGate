@@ -6,6 +6,7 @@ import { Card } from '@/components/ui/card'
 import { GateGlyph } from '@/components/GateGlyph'
 import { useInView } from '@/lib/useInView'
 import { cn } from '@/lib/utils'
+import { useAuth } from '@/state/auth'
 
 const STEPS: { title: string; text: string; icon: LucideIcon | null }[] = [
   { title: 'Document', text: 'A resume or notice may hide instructions the AI reads.', icon: FileText },
@@ -16,6 +17,7 @@ const STEPS: { title: string; text: string; icon: LucideIcon | null }[] = [
 
 export function HowItWorks({ onOpenWorkspace }: { onOpenWorkspace: () => void }) {
   const [ref, inView] = useInView<HTMLElement>()
+  const signedIn = useAuth().user !== null
 
   return (
     <section
@@ -66,7 +68,9 @@ export function HowItWorks({ onOpenWorkspace }: { onOpenWorkspace: () => void })
           Open workspace
           <ArrowRight aria-hidden />
         </Button>
-        <p className="text-muted-foreground text-xs">Sign in to run tasks in your isolated workspace.</p>
+        <p className="text-muted-foreground text-xs">
+          {signedIn ? 'Every tool is sandboxed. No real email is ever sent.' : 'Sign in to run tasks in your isolated workspace.'}
+        </p>
       </div>
     </section>
   )
