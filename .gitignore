@@ -1,0 +1,26 @@
+# Python
+.venv/
+__pycache__/
+*.pyc
+.pytest_cache/
+
+# Env / secrets
+.env
+
+# Local DB
+*.db
+*.sqlite3
+
+# Node
+node_modules/
+dist/
+
+# Editors / OS
+.vscode/
+.idea/
+.DS_Store
+Thumbs.db
+
+# Markdown kept local only for now (un-ignore README.md before submission)
+*.md
+docs/
