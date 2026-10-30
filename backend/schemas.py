@@ -5,7 +5,7 @@ Mirrored in frontend/src/api.ts — keep both in sync.
 
 from typing import Literal
 
-from pydantic import BaseModel, ConfigDict
+from pydantic import BaseModel, ConfigDict, Field
 
 ToolName = Literal["summarise", "send_email", "read_file", "delete_file"]
 Verdict = Literal["ALLOW", "BLOCK", "REVIEW"]
@@ -61,3 +61,19 @@ class LogEntry(_Strict):
     reasons: list[str]
     executed: bool
     source: Source = "run"
+    prev_hash: str | None = None  # hash chain: editing any past row breaks it (GET /api/logs/verify)
+    hash: str | None = None
+
+
+class InjectRequest(_Strict):
+    """Raw tool calls sent straight to the gate (no LLM), judged together as one run."""
+
+    task: str
+    calls: list = Field(min_length=1, max_length=10)
+
+
+class ReviewDecision(_Strict):
+    """Approve/deny by id only. call_hash = what the reviewer saw; a different call can't be approved."""
+
+    action: Literal["approve", "deny"]
+    call_hash: str | None = None
