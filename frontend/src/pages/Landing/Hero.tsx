@@ -4,6 +4,7 @@ import { ArrowDown, Play } from 'lucide-react'
 import heroArt from '@/assets/agentgate-hero-art.png'
 import { Button } from '@/components/ui/button'
 import { scrollToSection } from '@/lib/scroll'
+import { useAuth } from '@/state/auth'
 
 export function Hero({
   onOpenWorkspace,
@@ -14,6 +15,9 @@ export function Hero({
   onSignIn: () => void
   onSignUp: () => void
 }) {
+  // Signed in: just the way back into the workspace, no sign-up or sign-in prompts.
+  const signedIn = useAuth().user !== null
+
   return (
     <section aria-label="Introduction" className="@container relative isolate flex h-screen min-h-[44rem] flex-col overflow-hidden">
       {/* Artwork: slow float so the gate scene feels alive under the copy. */}
@@ -65,21 +69,27 @@ export function Hero({
             <Play aria-hidden />
             Open workspace
           </Button>
-          <Button
-            variant="outline"
-            size="lg"
-            className="ag-orbit-btn h-12 border-2 px-7 text-base hover:bg-transparent hover:text-white"
-            onClick={onSignUp}
-          >
-            Create account
-          </Button>
+          {!signedIn && (
+            <Button
+              variant="outline"
+              size="lg"
+              className="ag-orbit-btn h-12 border-2 px-7 text-base hover:bg-transparent hover:text-white"
+              onClick={onSignUp}
+            >
+              Create account
+            </Button>
+          )}
         </div>
         <p className="ag-fade-up text-muted-foreground mt-4 text-sm" style={{ '--ag-i': 5 } as CSSProperties}>
-          Already have a workspace?{' '}
-          <button type="button" className="text-foreground underline-offset-4 hover:underline" onClick={onSignIn}>
-            Sign in
-          </button>
-          {' · '}
+          {!signedIn && (
+            <>
+              Already have a workspace?{' '}
+              <button type="button" className="text-foreground underline-offset-4 hover:underline" onClick={onSignIn}>
+                Sign in
+              </button>
+              {' · '}
+            </>
+          )}
           <button
             type="button"
             className="text-foreground underline-offset-4 hover:underline"
