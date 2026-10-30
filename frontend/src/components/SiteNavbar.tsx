@@ -36,7 +36,7 @@ export function SiteNavbar({ page, onNavigate }: SiteNavbarProps) {
         'sticky top-0 z-40 h-16 border-b transition-colors motion-reduce:transition-none',
         // On Home the bar overlaps the hero instead of pushing it down.
         page === 'home' && '-mb-16',
-        overHero ? 'border-transparent bg-transparent' : 'bg-background/85 border-border',
+        overHero ? 'border-transparent bg-transparent' : 'bg-background/80 border-border backdrop-blur-md',
       )}
     >
       <div className="mx-auto flex h-full max-w-[75rem] items-center justify-between gap-2 overflow-hidden px-4 sm:px-8">
@@ -65,9 +65,10 @@ export function SiteNavbar({ page, onNavigate }: SiteNavbarProps) {
                     <span className="hidden min-[1000px]:inline">{p.label}</span>
                     {p.id === 'review-queue' && pendingCount > 0 && (
                       <Badge
+                        key={pendingCount}
                         variant="secondary"
                         aria-label={`${pendingCount} pending`}
-                        className="h-5 min-w-5 rounded-full px-1.5 tabular-nums"
+                        className="ag-pulse-once bg-review-soft text-review-ink border-review/40 h-5 min-w-5 rounded-full px-1.5 tabular-nums"
                       >
                         {pendingCount}
                       </Badge>

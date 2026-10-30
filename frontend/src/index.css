@@ -314,14 +314,113 @@
   animation: ag-ambient 6s ease-in-out infinite;
 }
 
+/* Staggered entrance for result cards and landing steps. Set --ag-i on the element. */
+@keyframes ag-fade-up {
+  from {
+    opacity: 0;
+    transform: translateY(10px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+.ag-fade-up {
+  animation: ag-fade-up 320ms ease-out both;
+  animation-delay: calc(var(--ag-i, 0) * 70ms);
+}
+
+/* Scroll reveal: hidden until a parent/self gets data-inview="true". */
+.ag-reveal {
+  opacity: 0;
+  transform: translateY(14px);
+  transition:
+    opacity 450ms ease-out,
+    transform 450ms ease-out;
+  transition-delay: calc(var(--ag-i, 0) * 90ms);
+}
+[data-inview='true'] .ag-reveal,
+.ag-reveal[data-inview='true'] {
+  opacity: 1;
+  transform: none;
+}
+
+/* Soft lift for cards that respond to hover. */
+.ag-hover-lift {
+  transition:
+    border-color 200ms ease,
+    box-shadow 200ms ease,
+    transform 200ms ease;
+}
+@media (hover: hover) {
+  .ag-hover-lift:not(.gate-border):hover {
+    border-color: var(--border-strong);
+  }
+  .ag-hover-lift:hover {
+    transform: translateY(-2px);
+    box-shadow:
+      inset 0 1px 0 0 var(--card-edge),
+      0 12px 28px -16px rgba(0, 0, 0, 0.7);
+  }
+}
+
+/* Review card leaving the queue after a decision. */
+@keyframes ag-collapse {
+  to {
+    opacity: 0;
+    transform: translateX(12px) scale(0.98);
+  }
+}
+.ag-collapse {
+  animation: ag-collapse 200ms ease-in both;
+  pointer-events: none;
+}
+
+/* Gentle attention pulse (countdown under a minute). */
+@keyframes ag-pulse-soft {
+  0%,
+  100% {
+    opacity: 1;
+  }
+  50% {
+    opacity: 0.55;
+  }
+}
+.ag-pulse-soft {
+  animation: ag-pulse-soft 1.2s ease-in-out infinite;
+}
+
+/* Progress bar fill eases between frames. */
+[data-slot='progress-indicator'] {
+  transition: transform 120ms linear;
+}
+
 @media (prefers-reduced-motion: reduce) {
   .ag-page-fade,
   .ag-ambient,
   .ag-step-lighting,
   .ag-slide-in,
   .ag-pulse-once,
-  .ag-row-reveal {
+  .ag-row-reveal,
+  .ag-fade-up,
+  .ag-collapse,
+  .ag-pulse-soft {
     animation: none;
+  }
+  .ag-collapse {
+    opacity: 0;
+  }
+  .ag-reveal,
+  .ag-hover-lift,
+  [data-slot='progress-indicator'] {
+    transition: none;
+  }
+  .ag-reveal {
+    opacity: 1;
+    transform: none;
+  }
+  .ag-hover-lift:hover {
+    transform: none;
   }
   .ag-step-lighting {
     border-color: var(--border-strong);

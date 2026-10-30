@@ -19,9 +19,9 @@ interface StatCardProps {
 
 export function StatCard({ icon: Icon, tone, value, label }: StatCardProps) {
   return (
-    <Card className="gap-3 px-5">
+    <Card className="ag-hover-lift gap-3 px-4 sm:px-5">
       <div className="flex items-start justify-between gap-3">
-        <span className="text-3xl leading-none font-semibold tracking-tight tabular-nums">{value}</span>
+        <span className="text-2xl leading-none font-semibold tracking-tight tabular-nums sm:text-3xl">{value}</span>
         <Icon aria-hidden className={cn('size-5 shrink-0', TONES[tone])} />
       </div>
       <span className="text-muted-foreground text-sm">{label}</span>

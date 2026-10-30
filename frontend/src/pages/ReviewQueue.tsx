@@ -1,4 +1,5 @@
-import { Check, CircleCheck, X } from 'lucide-react'
+import { useEffect, useRef, useState, type CSSProperties } from 'react'
+import { Check, CircleCheck, Inbox, Play, X } from 'lucide-react'
 
 import type { ReviewItem } from '@/types'
 import { Button } from '@/components/ui/button'
@@ -12,10 +13,37 @@ import { FieldList } from '@/components/FieldList'
 import { PageHeader } from '@/components/PageHeader'
 import { VerdictBadge } from '@/components/VerdictBadge'
 import { formatTime, taskLabel } from '@/lib/format'
-import { useStore } from '@/state/store'
+import { prefersReducedMotion } from '@/lib/usePrefersReducedMotion'
+import { cn } from '@/lib/utils'
+import { useStore, type ReviewOutcome } from '@/state/store'
 
-export function ReviewQueue() {
-  const { state, pendingCount } = useStore()
+const LEAVE_MS = 200
+
+export function ReviewQueue({ onRunTask }: { onRunTask?: () => void }) {
+  const { state, pendingCount, resolveReview } = useStore()
+  // Items animating out after a decision; buttons are disabled while leaving.
+  const [leaving, setLeaving] = useState<Set<string>>(new Set())
+  const timers = useRef<number[]>([])
+  useEffect(() => () => timers.current.forEach((t) => window.clearTimeout(t)), [])
+
+  function decide(id: string, outcome: ReviewOutcome) {
+    if (leaving.has(id)) return
+    if (prefersReducedMotion()) {
+      resolveReview(id, outcome)
+      return
+    }
+    setLeaving((prev) => new Set(prev).add(id))
+    timers.current.push(
+      window.setTimeout(() => {
+        resolveReview(id, outcome)
+        setLeaving((prev) => {
+          const next = new Set(prev)
+          next.delete(id)
+          return next
+        })
+      }, LEAVE_MS),
+    )
+  }
 
   return (
     <div className="flex flex-col gap-6">
@@ -33,48 +61,83 @@ export function ReviewQueue() {
 
         <TabsContent value="pending" className="flex flex-col gap-4">
           {state.reviewQueue.length === 0 ? (
-            <EmptyState icon={CircleCheck} message="Nothing waiting for review." />
+            <EmptyState
+              icon={CircleCheck}
+              message="Nothing waiting for review. Run the Email company task on a resume to see one arrive."
+              action={
+                onRunTask && (
+                  <Button variant="outline" size="sm" onClick={onRunTask}>
+                    <Play aria-hidden />
+                    Go to Run Task
+                  </Button>
+                )
+              }
+            />
           ) : (
-            state.reviewQueue.map((item, i) => <ReviewCard key={item.id} item={item} decorated={i === 0} />)
+            state.reviewQueue.map((item, i) => (
+              <ReviewCard
+                key={item.id}
+                item={item}
+                index={i}
+                decorated={i === 0}
+                leaving={leaving.has(item.id)}
+                onDecide={(outcome) => decide(item.id, outcome)}
+              />
+            ))
           )}
         </TabsContent>
 
         <TabsContent value="outbox" className="flex flex-col gap-3">
           <p className="text-muted-foreground text-sm">Mock outbox, no real email is sent.</p>
-          <div className="rounded-xl border">
-            <Table>
-              <TableHeader>
-                <TableRow className="hover:bg-transparent">
-                  <TableHead>Time</TableHead>
-                  <TableHead>To</TableHead>
-                  <TableHead>Subject</TableHead>
-                  <TableHead>Attachment</TableHead>
-                </TableRow>
-              </TableHeader>
-              <TableBody>
-                {state.outbox.map((o) => (
-                  <TableRow key={o.id}>
-                    <TableCell className="font-mono">{o.time}</TableCell>
-                    <TableCell className="font-mono break-all">{o.to}</TableCell>
-                    <TableCell>{o.subject}</TableCell>
-                    <TableCell className="font-mono break-all">{o.attachment}</TableCell>
+          {state.outbox.length === 0 ? (
+            <EmptyState icon={Inbox} message="Outbox is empty. Approved emails show up here." />
+          ) : (
+            <div className="rounded-xl border">
+              <Table>
+                <TableHeader>
+                  <TableRow className="hover:bg-transparent">
+                    <TableHead>Time</TableHead>
+                    <TableHead>To</TableHead>
+                    <TableHead className="hidden sm:table-cell">Subject</TableHead>
+                    <TableHead>Attachment</TableHead>
                   </TableRow>
-                ))}
-              </TableBody>
-            </Table>
-          </div>
+                </TableHeader>
+                <TableBody>
+                  {state.outbox.map((o) => (
+                    <TableRow key={o.id}>
+                      <TableCell className="font-mono whitespace-nowrap">{o.time}</TableCell>
+                      <TableCell className="font-mono break-all">{o.to}</TableCell>
+                      <TableCell className="hidden sm:table-cell">{o.subject}</TableCell>
+                      <TableCell className="font-mono break-all">{o.attachment}</TableCell>
+                    </TableRow>
+                  ))}
+                </TableBody>
+              </Table>
+            </div>
+          )}
         </TabsContent>
       </Tabs>
     </div>
   )
 }
 
-function ReviewCard({ item, decorated }: { item: ReviewItem; decorated: boolean }) {
-  const { resolveReview } = useStore()
+interface ReviewCardProps {
+  item: ReviewItem
+  index: number
+  decorated: boolean
+  leaving: boolean
+  onDecide: (outcome: ReviewOutcome) => void
+}
+
+function ReviewCard({ item, index, decorated, leaving, onDecide }: ReviewCardProps) {
   const { args } = item.call
 
   return (
-    <Card className="gap-4 px-5">
+    <Card
+      className={cn('ag-fade-up gap-4 px-5 transition-[border-color]', leaving && 'ag-collapse')}
+      style={{ '--ag-i': Math.min(index, 4) } as CSSProperties}
+      aria-busy={leaving}
+    >
       {decorated && <CornerMarks marks={[{ corner: 'tl', tone: 'violet' }, { corner: 'br', tone: 'orange' }]} />}
       <div className="flex flex-wrap items-center gap-3">
         <VerdictBadge verdict="REVIEW" />
@@ -100,12 +163,12 @@ function ReviewCard({ item, decorated }: { item: ReviewItem; decorated: boolean 
             <span className="text-foreground/80">{item.reason}</span>
           </p>
         </div>
-        <div className="flex shrink-0 items-center gap-2">
-          <Button variant="outline" onClick={() => resolveReview(item.id, 'deny')}>
+        <div className="flex w-full shrink-0 items-center gap-2 sm:w-auto">
+          <Button variant="outline" className="flex-1 sm:flex-none" disabled={leaving} onClick={() => onDecide('deny')}>
             <X aria-hidden />
             Deny
           </Button>
-          <Button onClick={() => resolveReview(item.id, 'approve')}>
+          <Button className="flex-1 sm:flex-none" disabled={leaving} onClick={() => onDecide('approve')}>
             <Check aria-hidden />
             Approve
           </Button>

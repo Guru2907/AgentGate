@@ -1,10 +1,11 @@
-import { ArrowRight } from 'lucide-react'
+import type { CSSProperties } from 'react'
+import { ArrowDown, Play } from 'lucide-react'
 
 import heroArt from '@/assets/agentgate-hero-art.png'
 import { Button } from '@/components/ui/button'
 import { scrollToSection } from '@/lib/scroll'
 
-export function Hero() {
+export function Hero({ onTryDemo }: { onTryDemo: () => void }) {
   return (
     <section aria-label="Introduction" className="@container relative isolate flex h-screen min-h-[44rem] flex-col overflow-hidden">
       {/* Artwork starts 8rem down (anchored bottom) so the gate crystal sits clearly below the CTA. */}
@@ -24,23 +25,35 @@ export function Hero() {
 
       {/* Top padding clears the sticky navbar that overlaps the hero. */}
       <div className="flex flex-col items-center px-6 pt-[calc(5.5rem+clamp(1.5rem,5vh,3.5rem))] text-center">
-        <h1 className="title-fade text-[clamp(3rem,5.6cqw,5rem)] leading-[1.05] font-light tracking-[-0.03em]">
+        <h1
+          className="ag-fade-up title-fade text-[clamp(2.5rem,5.6cqw,5rem)] leading-[1.05] font-light tracking-[-0.03em]"
+          style={{ '--ag-i': 0 } as CSSProperties}
+        >
           The AI can be fooled.
           <br />
           The gate <span className="text-primary">can't.</span>
         </h1>
-        <p className="text-muted-foreground mt-6 max-w-[36rem] font-mono text-sm tracking-[0.15em] text-balance">
+        <p
+          className="ag-fade-up text-muted-foreground mt-6 max-w-[36rem] font-mono text-sm tracking-[0.15em] text-balance"
+          style={{ '--ag-i': 2 } as CSSProperties}
+        >
           A security layer between AI decisions and real-world actions.
         </p>
-        <Button
-          variant="outline"
-          size="lg"
-          className="mt-8 h-12 px-7 text-base border-white/25 bg-white/12 text-white shadow-[inset_0_1px_0_0_rgba(255,255,255,0.2)] backdrop-blur-xl hover:border-white/40 hover:bg-white/18 hover:text-white"
-          onClick={() => scrollToSection('how-it-works')}
-        >
-          See how it works
-          <ArrowRight aria-hidden />
-        </Button>
+        <div className="ag-fade-up mt-8 flex flex-col items-center gap-3 sm:flex-row" style={{ '--ag-i': 4 } as CSSProperties}>
+          <Button size="lg" className="h-12 px-7 text-base" onClick={onTryDemo}>
+            <Play aria-hidden />
+            Try the demo
+          </Button>
+          <Button
+            variant="outline"
+            size="lg"
+            className="h-12 border-white/25 bg-white/12 px-7 text-base text-white shadow-[inset_0_1px_0_0_rgba(255,255,255,0.2)] backdrop-blur-xl hover:border-white/40 hover:bg-white/18 hover:text-white"
+            onClick={() => scrollToSection('how-it-works')}
+          >
+            See how it works
+            <ArrowDown aria-hidden />
+          </Button>
+        </div>
       </div>
     </section>
   )
