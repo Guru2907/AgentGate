@@ -1,12 +1,14 @@
 import { useEffect, useState } from 'react'
 import { useLocation, useNavigate } from 'react-router-dom'
+import { toast } from 'sonner'
 
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip'
 import { BrandMark } from '@/components/BrandMark'
-import { SITE_PAGES, pageOfPath } from '@/components/sitePages'
+import { SITE_PAGES, pageOfPath, pathOf } from '@/components/sitePages'
 import { cn } from '@/lib/utils'
+import { useAuth } from '@/state/auth'
 import { useStore } from '@/state/store'
 
 /** Home only: the bar is transparent over the hero. It never changes the active page. */
@@ -25,6 +27,7 @@ function useScrolledPast(px: number, enabled: boolean): boolean {
 /** The active item follows the route only (no scroll-spy). */
 export function SiteNavbar() {
   const { pendingCount } = useStore()
+  const { user, logout } = useAuth()
   const navigate = useNavigate()
   const page = pageOfPath(useLocation().pathname)
   const onHome = page === 'home'
@@ -47,6 +50,7 @@ export function SiteNavbar() {
 
         <nav aria-label="Pages" className="flex shrink-0 items-center gap-2">
           {SITE_PAGES.map((p) => {
+            if (p.id !== 'home' && !user) return null
             const isActive = page === p.id
             return (
               <Tooltip key={p.id}>
@@ -80,6 +84,43 @@ export function SiteNavbar() {
               </Tooltip>
             )
           })}
+
+          {user ? (
+            <>
+              <Button
+                variant={page === 'account' ? 'secondary' : 'ghost'}
+                className="hidden sm:inline-flex"
+                onClick={() => navigate(pathOf('account'))}
+              >
+                {user.full_name.split(' ')[0]}
+              </Button>
+              <Button
+                variant="outline"
+                size="sm"
+                className="hidden sm:inline-flex"
+                onClick={async () => {
+                  try {
+                    navigate('/') // leave the protected page first, or its guard redirects to Sign in
+                    await logout()
+                    toast.success('Signed out.')
+                  } catch {
+                    toast.error('Could not sign out. Check your connection and try again.')
+                  }
+                }}
+              >
+                Sign out
+              </Button>
+            </>
+          ) : (
+            <>
+              <Button variant="ghost" className="hidden sm:inline-flex" onClick={() => navigate(pathOf('login'))}>
+                Sign in
+              </Button>
+              <Button size="sm" className="hidden sm:inline-flex" onClick={() => navigate(pathOf('signup'))}>
+                Sign up
+              </Button>
+            </>
+          )}
         </nav>
       </div>
     </header>

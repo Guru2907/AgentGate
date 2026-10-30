@@ -178,7 +178,13 @@
 }
 
 @utility card-edge {
-  box-shadow: inset 0 1px 0 0 var(--card-edge);
+  /* Layered depth: top bevel + soft ambient lift + contact shadow. */
+  box-shadow:
+    inset 0 1px 0 0 var(--card-edge),
+    inset 0 -1px 0 0 rgba(0, 0, 0, 0.35),
+    0 1px 0 rgba(255, 255, 255, 0.03),
+    0 10px 28px -18px rgba(0, 0, 0, 0.75),
+    0 2px 6px -2px rgba(0, 0, 0, 0.45);
 }
 
 @utility title-fade {
@@ -214,6 +220,72 @@
   background:
     linear-gradient(var(--card), var(--card)) padding-box,
     linear-gradient(90deg, var(--accent-violet), var(--primary)) border-box;
+}
+
+/* Gemini-inspired orbit ring: rotating conic border in AgentGate violet → orange. */
+@property --ag-orbit-angle {
+  syntax: '<angle>';
+  inherits: false;
+  initial-value: 0deg;
+}
+
+@keyframes ag-orbit {
+  to {
+    --ag-orbit-angle: 360deg;
+  }
+}
+
+.ag-orbit-btn {
+  --ag-orbit-fill: color-mix(in srgb, var(--background) 72%, transparent);
+  position: relative;
+  isolation: isolate;
+  overflow: hidden;
+  border-style: solid;
+  border-color: transparent !important;
+  color: #fff;
+  background:
+    linear-gradient(var(--ag-orbit-fill), var(--ag-orbit-fill)) padding-box,
+    conic-gradient(
+      from var(--ag-orbit-angle),
+      var(--accent-violet) 0%,
+      #c084fc 18%,
+      var(--primary) 38%,
+      #fb923c 55%,
+      #f472b6 72%,
+      var(--accent-violet-soft) 88%,
+      var(--accent-violet) 100%
+    )
+    border-box;
+  background-origin: border-box;
+  background-clip: padding-box, border-box;
+  box-shadow:
+    inset 0 1px 0 0 rgba(255, 255, 255, 0.16),
+    0 0 22px -6px color-mix(in srgb, var(--accent-violet) 65%, transparent),
+    0 0 30px -8px color-mix(in srgb, var(--primary) 50%, transparent);
+  backdrop-filter: blur(16px);
+  -webkit-backdrop-filter: blur(16px);
+  animation: ag-orbit 3.2s linear infinite;
+  transition:
+    box-shadow 200ms ease,
+    transform 150ms ease,
+    color 150ms ease;
+}
+
+.ag-orbit-btn:hover {
+  --ag-orbit-fill: color-mix(in srgb, var(--background) 62%, transparent);
+  color: #fff;
+  box-shadow:
+    inset 0 1px 0 0 rgba(255, 255, 255, 0.2),
+    0 0 28px -6px color-mix(in srgb, var(--accent-violet) 70%, transparent),
+    0 0 36px -8px color-mix(in srgb, var(--primary) 55%, transparent);
+}
+
+.ag-orbit-btn:focus-visible {
+  outline: none;
+  box-shadow:
+    inset 0 1px 0 0 rgba(255, 255, 255, 0.14),
+    0 0 0 3px color-mix(in srgb, var(--ring) 45%, transparent),
+    0 0 28px -6px color-mix(in srgb, var(--accent-violet) 70%, transparent);
 }
 
 @keyframes ag-step-light {
@@ -284,13 +356,122 @@
 @keyframes ag-page-fade {
   from {
     opacity: 0;
+    transform: translateY(10px) scale(0.992);
+    filter: blur(2px);
   }
   to {
     opacity: 1;
+    transform: translateY(0) scale(1);
+    filter: blur(0);
   }
 }
 .ag-page-fade {
-  animation: ag-page-fade 150ms ease-out both;
+  animation: ag-page-fade 260ms cubic-bezier(0.22, 1, 0.36, 1) both;
+}
+
+/* Tab panel crossfade when switching Gate Log / Review Queue tabs. */
+@keyframes ag-tab-in {
+  from {
+    opacity: 0;
+    transform: translateY(8px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+.ag-tab-in {
+  animation: ag-tab-in 240ms cubic-bezier(0.22, 1, 0.36, 1) both;
+}
+
+/* Corner L-bracket: subtle 3D settle on mount. */
+@keyframes ag-corner-in {
+  from {
+    opacity: 0;
+    transform: scale(0.7);
+  }
+  to {
+    opacity: 1;
+    transform: scale(1);
+  }
+}
+.ag-corner-mark {
+  animation: ag-corner-in 280ms cubic-bezier(0.22, 1, 0.36, 1) both;
+}
+.ag-corner-mark[data-tone='violet'] {
+  border-color: var(--accent-violet-soft);
+  box-shadow:
+    0 0 0 1px color-mix(in srgb, var(--accent-violet) 25%, transparent),
+    0 0 12px -2px color-mix(in srgb, var(--accent-violet) 70%, transparent),
+    inset 0 1px 0 color-mix(in srgb, #fff 35%, transparent);
+}
+.ag-corner-mark[data-tone='orange'] {
+  border-color: var(--primary);
+  box-shadow:
+    0 0 0 1px color-mix(in srgb, var(--primary) 25%, transparent),
+    0 0 12px -2px color-mix(in srgb, var(--primary) 65%, transparent),
+    inset 0 1px 0 color-mix(in srgb, #fff 30%, transparent);
+}
+
+/* Active nav underline: draws in under the current page. */
+@keyframes ag-nav-ink {
+  from {
+    transform: scaleX(0.35);
+    opacity: 0;
+  }
+  to {
+    transform: scaleX(1);
+    opacity: 1;
+  }
+}
+.ag-nav-ink::after {
+  transform-origin: center;
+  animation: ag-nav-ink 220ms ease-out both;
+}
+
+/* Sheet panel enter (Gate Log detail, Rules). */
+@keyframes ag-sheet-in {
+  from {
+    opacity: 0;
+    transform: translateX(12px);
+  }
+  to {
+    opacity: 1;
+    transform: translateX(0);
+  }
+}
+.ag-sheet-in {
+  animation: ag-sheet-in 220ms ease-out both;
+}
+
+/* Soft select feedback for interactive rows / radios. */
+.ag-select-row {
+  transition:
+    border-color 160ms ease,
+    background-color 160ms ease,
+    box-shadow 160ms ease,
+    transform 160ms ease;
+}
+@media (hover: hover) {
+  .ag-select-row:hover {
+    border-color: var(--border-strong);
+    transform: translateY(-1px);
+  }
+}
+
+/* Brief flash when a stat value updates during Attack Bench. */
+@keyframes ag-tick {
+  0% {
+    opacity: 0.55;
+    transform: translateY(3px);
+  }
+  100% {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+.ag-tick {
+  animation: ag-tick 180ms ease-out both;
 }
 
 /* Landing only: slow ambient pulse on the glow behind the gate in the artwork. */
@@ -312,6 +493,216 @@
     radial-gradient(circle at 62% 50%, color-mix(in srgb, var(--primary) 35%, transparent), transparent 60%);
   mix-blend-mode: screen;
   animation: ag-ambient 6s ease-in-out infinite;
+}
+
+@keyframes ag-ambient-outer {
+  0%,
+  100% {
+    opacity: 0.28;
+    transform: translate(-50%, 50%) scale(0.94);
+  }
+  50% {
+    opacity: 0.5;
+    transform: translate(-50%, 50%) scale(1.06);
+  }
+}
+.ag-ambient-outer {
+  transform: translate(-50%, 50%);
+  background-image:
+    radial-gradient(circle at 42% 48%, color-mix(in srgb, var(--accent-violet) 22%, transparent), transparent 68%),
+    radial-gradient(circle at 58% 52%, color-mix(in srgb, var(--primary) 18%, transparent), transparent 68%);
+  mix-blend-mode: screen;
+  animation: ag-ambient-outer 9s ease-in-out infinite;
+}
+
+/* Hero artwork: gentle vertical breathe (no heavy parallax). */
+@keyframes ag-hero-art {
+  0%,
+  100% {
+    transform: translate3d(0, 0, 0) scale(1);
+  }
+  50% {
+    transform: translate3d(0, -10px, 0) scale(1.012);
+  }
+}
+.ag-hero-art {
+  transform-origin: 50% 85%;
+  will-change: transform;
+  animation: ag-hero-art 11s ease-in-out infinite;
+}
+
+/* Floating brand sparks over the hero. */
+@keyframes ag-spark-drift {
+  0%,
+  100% {
+    opacity: 0.15;
+    transform: translate3d(0, 0, 0) scale(0.85);
+  }
+  40% {
+    opacity: 0.85;
+  }
+  70% {
+    opacity: 0.4;
+    transform: translate3d(12px, -28px, 0) scale(1.15);
+  }
+}
+.ag-hero-sparks {
+  overflow: hidden;
+}
+.ag-spark {
+  position: absolute;
+  display: block;
+  border-radius: 9999px;
+  background: var(--accent-violet-soft);
+  box-shadow: 0 0 12px 2px color-mix(in srgb, var(--accent-violet) 55%, transparent);
+  animation: ag-spark-drift 7s ease-in-out infinite;
+}
+.ag-spark-a {
+  width: 4px;
+  height: 4px;
+  left: 18%;
+  top: 42%;
+  animation-delay: 0s;
+}
+.ag-spark-b {
+  width: 3px;
+  height: 3px;
+  left: 72%;
+  top: 38%;
+  background: var(--primary);
+  box-shadow: 0 0 12px 2px color-mix(in srgb, var(--primary) 55%, transparent);
+  animation-delay: 1.4s;
+  animation-duration: 8.5s;
+}
+.ag-spark-c {
+  width: 5px;
+  height: 5px;
+  left: 48%;
+  top: 58%;
+  animation-delay: 2.2s;
+  animation-duration: 9s;
+}
+.ag-spark-d {
+  width: 2.5px;
+  height: 2.5px;
+  left: 30%;
+  top: 68%;
+  background: #fb923c;
+  box-shadow: 0 0 10px 2px color-mix(in srgb, var(--primary) 40%, transparent);
+  animation-delay: 0.8s;
+  animation-duration: 6.5s;
+}
+.ag-spark-e {
+  width: 3.5px;
+  height: 3.5px;
+  left: 82%;
+  top: 62%;
+  animation-delay: 3.1s;
+  animation-duration: 10s;
+}
+
+/* Headline lines stagger slightly past the parent fade. */
+.ag-hero-line {
+  display: block;
+  animation: ag-fade-up 420ms ease-out both;
+  animation-delay: calc(var(--ag-i, 0) * 90ms);
+}
+
+/* Shimmering accent on “can't.” */
+@keyframes ag-hero-accent {
+  0%,
+  100% {
+    filter: drop-shadow(0 0 0 transparent);
+    background-position: 0% 50%;
+  }
+  50% {
+    filter: drop-shadow(0 0 14px color-mix(in srgb, var(--primary) 55%, transparent));
+    background-position: 100% 50%;
+  }
+}
+.ag-hero-accent {
+  background-image: linear-gradient(
+    100deg,
+    var(--primary) 0%,
+    #fb923c 35%,
+    #fff7ed 50%,
+    #fb923c 65%,
+    var(--primary) 100%
+  );
+  background-size: 220% 100%;
+  -webkit-background-clip: text;
+  background-clip: text;
+  color: transparent;
+  animation: ag-hero-accent 4.5s ease-in-out infinite;
+}
+
+/* Mono subtitle: soft scanning underline. */
+@keyframes ag-hero-sub-scan {
+  0% {
+    background-position: 0% 100%;
+  }
+  100% {
+    background-position: 100% 100%;
+  }
+}
+.ag-hero-sub {
+  background-image: linear-gradient(
+    90deg,
+    transparent 0%,
+    color-mix(in srgb, var(--accent-violet) 55%, transparent) 50%,
+    transparent 100%
+  );
+  background-size: 40% 1px;
+  background-repeat: no-repeat;
+  background-position: 0% 100%;
+  padding-bottom: 0.35rem;
+  animation: ag-hero-sub-scan 3.8s ease-in-out infinite alternate;
+}
+
+/* Primary CTA: soft breathing glow. */
+@keyframes ag-cta-glow {
+  0%,
+  100% {
+    box-shadow:
+      0 0 0 0 color-mix(in srgb, var(--primary) 0%, transparent),
+      0 8px 24px -12px color-mix(in srgb, var(--primary) 45%, transparent);
+  }
+  50% {
+    box-shadow:
+      0 0 28px -4px color-mix(in srgb, var(--primary) 55%, transparent),
+      0 10px 28px -10px color-mix(in srgb, var(--primary) 60%, transparent);
+  }
+}
+.ag-cta-glow {
+  animation: ag-cta-glow 2.8s ease-in-out infinite;
+}
+
+@keyframes ag-arrow-bob {
+  0%,
+  100% {
+    transform: translateY(0);
+  }
+  50% {
+    transform: translateY(3px);
+  }
+}
+.ag-arrow-bob {
+  animation: ag-arrow-bob 1.4s ease-in-out infinite;
+}
+
+@keyframes ag-scroll-cue {
+  0%,
+  100% {
+    opacity: 0.45;
+    transform: translate(-50%, 0);
+  }
+  50% {
+    opacity: 0.95;
+    transform: translate(-50%, 6px);
+  }
+}
+.ag-scroll-cue {
+  animation: ag-scroll-cue 2s ease-in-out infinite;
 }
 
 /* Staggered entrance for result cards and landing steps. Set --ag-i on the element. */
@@ -348,19 +739,22 @@
 /* Soft lift for cards that respond to hover. */
 .ag-hover-lift {
   transition:
-    border-color 200ms ease,
-    box-shadow 200ms ease,
-    transform 200ms ease;
+    border-color 220ms ease,
+    box-shadow 220ms ease,
+    transform 220ms cubic-bezier(0.22, 1, 0.36, 1);
 }
 @media (hover: hover) {
   .ag-hover-lift:not(.gate-border):hover {
     border-color: var(--border-strong);
   }
   .ag-hover-lift:hover {
-    transform: translateY(-2px);
+    transform: translateY(-3px);
     box-shadow:
       inset 0 1px 0 0 var(--card-edge),
-      0 12px 28px -16px rgba(0, 0, 0, 0.7);
+      inset 0 -1px 0 0 rgba(0, 0, 0, 0.28),
+      0 1px 0 rgba(255, 255, 255, 0.04),
+      0 18px 36px -16px rgba(0, 0, 0, 0.8),
+      0 6px 12px -4px rgba(0, 0, 0, 0.5);
   }
 }
 
@@ -398,20 +792,65 @@
 @media (prefers-reduced-motion: reduce) {
   .ag-page-fade,
   .ag-ambient,
+  .ag-ambient-outer,
+  .ag-hero-art,
+  .ag-spark,
+  .ag-hero-line,
+  .ag-hero-accent,
+  .ag-hero-sub,
+  .ag-cta-glow,
+  .ag-arrow-bob,
+  .ag-scroll-cue,
   .ag-step-lighting,
   .ag-slide-in,
   .ag-pulse-once,
   .ag-row-reveal,
   .ag-fade-up,
   .ag-collapse,
-  .ag-pulse-soft {
+  .ag-pulse-soft,
+  .ag-orbit-btn,
+  .ag-nav-ink::after,
+  .ag-sheet-in,
+  .ag-tick,
+  .ag-tab-in,
+  .ag-corner-mark {
     animation: none;
+  }
+  .ag-hero-accent {
+    background: none;
+    color: var(--primary);
+    -webkit-background-clip: unset;
+    background-clip: unset;
+    filter: none;
+  }
+  .ag-hero-sub {
+    background-image: none;
+  }
+  .ag-page-fade {
+    filter: none;
+  }
+  .ag-orbit-btn {
+    /* Static spectrum ring when motion is reduced. */
+    background:
+      linear-gradient(var(--ag-orbit-fill), var(--ag-orbit-fill)) padding-box,
+      conic-gradient(
+        from 210deg,
+        var(--accent-violet),
+        #c084fc,
+        var(--primary),
+        #fb923c,
+        #f472b6,
+        var(--accent-violet-soft),
+        var(--accent-violet)
+      )
+      border-box;
   }
   .ag-collapse {
     opacity: 0;
   }
   .ag-reveal,
   .ag-hover-lift,
+  .ag-select-row,
   [data-slot='progress-indicator'] {
     transition: none;
   }
@@ -419,7 +858,8 @@
     opacity: 1;
     transform: none;
   }
-  .ag-hover-lift:hover {
+  .ag-hover-lift:hover,
+  .ag-select-row:hover {
     transform: none;
   }
   .ag-step-lighting {

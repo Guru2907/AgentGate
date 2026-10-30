@@ -1,7 +1,8 @@
 import { createContext, useCallback, useContext, useEffect, useMemo, useReducer, useRef, type ReactNode } from 'react'
 import { toast } from 'sonner'
 
-import { api, USE_MOCK, type ApiOutboxItem, type ApiReview } from '@/api'
+import { api, ApiError, USE_MOCK, type ApiOutboxItem, type ApiReview } from '@/api'
+import { useAuth } from '@/state/auth'
 import type { LogEntry, LogSource, OutboxItem, ReviewItem, RunExtras, RunRequest, RunResult, TaskId } from '@/types'
 import { docName, formatTime, localTimestamp } from '@/lib/format'
 import { appendToLog, type NewLogEntry } from '@/lib/logChain'
@@ -199,7 +200,8 @@ interface StoreValue {
   updateRunSession: (patch: Partial<Omit<RunSession, 'phase'>>) => void
   startRun: (source: 'run' | 'inject') => void
   /** Live: reload log, reviews and outbox from the backend now. */
-  refresh: () => Promise<void>
+  /** Reloads log, reviews and outbox; resolves to the oldest-first log, or null if it failed. */
+  refresh: () => Promise<LogEntry[] | null>
 }
 
 const StoreContext = createContext<StoreValue | null>(null)
@@ -218,6 +220,8 @@ function pathToDocument(path: string): DocumentInfo {
 
 export function StoreProvider({ children }: { children: ReactNode }) {
   const [state, dispatch] = useReducer(reducer, undefined, initialState)
+  // Data is per workspace: load it only for a signed-in user, and drop it when they sign out or switch.
+  const workspaceId = useAuth().user?.workspace_id ?? null
   const stateRef = useRef(state)
   stateRef.current = state
 
@@ -228,7 +232,7 @@ export function StoreProvider({ children }: { children: ReactNode }) {
   }, [])
 
   const refresh = useCallback<StoreValue['refresh']>(async () => {
-    if (USE_MOCK) return
+    if (USE_MOCK) return null
     try {
       const [newestFirst, reviews, outbox] = await Promise.all([api.logs(), api.reviews(), api.outbox()])
       const log = [...newestFirst].reverse() // the store keeps the log oldest-first, like the offline prototype
@@ -238,8 +242,10 @@ export function StoreProvider({ children }: { children: ReactNode }) {
         reviewQueue: reviews.map((r) => toReviewItem(r, log)),
         outbox: outbox.map(toOutboxItem),
       })
-    } catch {
-      dispatch({ type: 'SET_BACKEND', online: false })
+      return log
+    } catch (err) {
+      if (!(err instanceof ApiError && err.status === 401)) dispatch({ type: 'SET_BACKEND', online: false })
+      return null
     }
   }, [])
 
@@ -285,6 +291,8 @@ export function StoreProvider({ children }: { children: ReactNode }) {
   // Live docs + health + gate-log polling when USE_MOCK is false.
   useEffect(() => {
     if (USE_MOCK) return
+    dispatch({ type: 'SET_LIVE', log: [], reviewQueue: [], outbox: [] })
+    if (workspaceId === null) return
 
     let cancelled = false
 
@@ -317,7 +325,7 @@ export function StoreProvider({ children }: { children: ReactNode }) {
       window.clearInterval(healthTimer)
       window.clearInterval(logTimer)
     }
-  }, [refresh])
+  }, [refresh, workspaceId])
 
   const startRun = useCallback<StoreValue['startRun']>(
     (source) => {
@@ -360,8 +368,9 @@ export function StoreProvider({ children }: { children: ReactNode }) {
               patch: { phase: { kind: 'loading', request, source, tool } },
             })
             // Reload so the new rows (and any review) appear, then point the result at the real log row.
-            void refresh().then(() => {
-              const newest = stateRef.current.log[stateRef.current.log.length - 1]?.id ?? 0
+            void refresh().then((log) => {
+              // stateRef only updates on the next render, so read the id from the log just loaded.
+              const newest = (log ?? stateRef.current.log).at(-1)?.id ?? 0
               window.clearTimeout(runTimer.current)
               const outboxHadItems = stateRef.current.outbox.length > 0
               dispatch({

@@ -3,7 +3,6 @@ import { toast } from 'sonner'
 import { Check, Copy, Search, SearchX, X } from 'lucide-react'
 
 import type { LogEntry, Verdict } from '@/types'
-import { USE_MOCK } from '@/api'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Sheet, SheetBody, SheetContent, SheetDescription, SheetHeader, SheetTitle } from '@/components/ui/sheet'
@@ -46,14 +45,6 @@ function ExecutedText({ entry, resolvedBy }: { entry: LogEntry; resolvedBy?: num
 }
 
 function LiveStatus({ online }: { online: boolean | null }) {
-  if (USE_MOCK) {
-    return (
-      <span className="text-muted-foreground inline-flex items-center gap-1.5 text-xs">
-        <span aria-hidden className="bg-accent-violet-soft size-1.5 rounded-full" />
-        Replay · sample data
-      </span>
-    )
-  }
   if (online === false) {
     return (
       <span className="text-blocked-ink inline-flex items-center gap-1.5 text-xs">
@@ -173,7 +164,7 @@ export function GateLog({ focusLogId = null }: { focusLogId?: number | null }) {
             />
           ) : (
             <>
-              <div className="relative rounded-xl border">
+              <div className="card-edge bg-card relative rounded-xl border">
                 <CornerMarks marks={[{ corner: 'tl', tone: 'violet' }, { corner: 'br', tone: 'orange' }]} />
                 <Table>
                   <TableHeader>
@@ -203,7 +194,7 @@ export function GateLog({ focusLogId = null }: { focusLogId?: number | null }) {
                           }
                         }}
                         className={cn(
-                          'focus-visible:ring-ring/50 cursor-pointer outline-none focus-visible:ring-[3px] focus-visible:ring-inset',
+                          'ag-select-row focus-visible:ring-ring/50 cursor-pointer outline-none focus-visible:ring-[3px] focus-visible:ring-inset',
                           e.id > initialMaxId && 'ag-row-reveal',
                         )}
                       >
