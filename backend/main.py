@@ -12,11 +12,21 @@ from contextlib import asynccontextmanager
 from pathlib import Path
 
 from dotenv import load_dotenv
-from fastapi import FastAPI, HTTPException
+from fastapi import Body, FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 
-from backend import db, gate, tools
-from backend.schemas import Decision, InjectRequest, LogEntry, ReviewDecision, RunRequest, RunResult, ToolCall
+from backend import db, gate, insights, tools
+from backend.schemas import (
+    CallExtras,
+    Decision,
+    InjectRequest,
+    LogEntry,
+    RedTeamRequest,
+    ReviewDecision,
+    RunRequest,
+    RunResult,
+    ToolCall,
+)
 
 load_dotenv()
 log = logging.getLogger("agentgate")
@@ -201,16 +211,18 @@ def _process_one(task: str, doc: str, raw, source: str, ctx: gate.RunContext) ->
     return record, decision, output
 
 
-def _process(task: str, doc: str, raw_calls: list, source: str) -> RunResult:
+def _process(task: str, doc: str, raw_calls: list, source: str, text: str = "") -> RunResult:
     """Judge every proposed call in order with one shared RunContext; run tools only on ALLOW."""
     ctx = gate.RunContext()
-    proposed, decisions, outputs = [], [], []
+    proposed, decisions, outputs, extras = [], [], [], []
+    hidden = insights.hidden_instructions(text)
     for raw in raw_calls:
         record, decision, output = _process_one(task, doc, raw, source, ctx)
         proposed.append(record)
         decisions.append(decision)
         outputs.append(output)
-    return RunResult(proposed=proposed, decisions=decisions, outputs=outputs)
+        extras.append(CallExtras(hidden_text=hidden, egress=insights.egress_preview(record, POLICY)))
+    return RunResult(proposed=proposed, decisions=decisions, outputs=outputs, extras=extras)
 
 
 @app.post("/api/run")
@@ -220,11 +232,12 @@ def run_task(req: RunRequest) -> RunResult:
 
     if steps == 1:
         # Demo-safe default: one-shot propose (same shape as before issue #8).
-        return _process(req.task, req.doc, _propose(req.task, text, req.doc), "run")
+        return _process(req.task, req.doc, _propose(req.task, text, req.doc), "run", text=text)
 
     # Multi-step: agent sees prior outputs; stop when it proposes nothing or hits the step cap.
     ctx = gate.RunContext()
-    proposed, decisions, outputs = [], [], []
+    proposed, decisions, outputs, extras = [], [], [], []
+    hidden = insights.hidden_instructions(text)
     history: list[dict] = []
     for _ in range(steps):
         batch = _propose(req.task, text, req.doc, history)
@@ -236,6 +249,7 @@ def run_task(req: RunRequest) -> RunResult:
         proposed.append(record)
         decisions.append(decision)
         outputs.append(output)
+        extras.append(CallExtras(hidden_text=hidden, egress=insights.egress_preview(record, POLICY)))
         call_dict = (
             {"tool": record.tool, "args": record.args}
             if isinstance(record, ToolCall)
@@ -243,7 +257,7 @@ def run_task(req: RunRequest) -> RunResult:
         )
         history.append({"call": call_dict, "output": output, "verdict": decision.verdict})
 
-    return RunResult(proposed=proposed, decisions=decisions, outputs=outputs)
+    return RunResult(proposed=proposed, decisions=decisions, outputs=outputs, extras=extras)
 
 
 @app.post("/api/inject")
@@ -326,7 +340,24 @@ def decide_review(review_id: int, body: ReviewDecision) -> dict:
 
 @app.post("/api/bench")
 def run_bench() -> dict:
-    raise _not_yet("attack bench")
+    """Score data/bench_cases.yaml when present (#7). Empty list → zeroed totals until #7 lands."""
+    from backend import bench
+
+    return bench.run_bench()
+
+
+@app.post("/api/redteam")
+def run_redteam(req: RedTeamRequest = Body(default_factory=RedTeamRequest)) -> dict:
+    """Invent N hostile docs (or re-score the saved batch) and run them through the bench (#10).
+
+    Body is optional — missing/empty JSON uses RedTeamRequest defaults (n=10, generate+score).
+    """
+    from backend import redteam
+
+    try:
+        return redteam.run(n=req.n, score_only=req.score_only, use_templates=req.templates)
+    except FileNotFoundError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
 
 
 @app.get("/api/policy")
