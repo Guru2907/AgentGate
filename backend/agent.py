@@ -3,6 +3,10 @@
 LLM_MODE=live   -> Groq tool calling (GROQ_API_KEY, GROQ_MODEL from .env)
 LLM_MODE=replay -> backend/replay/<doc>__<task>.json
 
+One-shot: propose(task, text, doc) -> list[dict]
+Multi-step: next_step(task, text, doc, history) -> list[dict] for the next step only.
+  history items: {"call": dict, "output": str, "verdict": str}
+
 On live timeout/API error, falls back to a saved replay for that task+doc when present
 (demo stays usable if Groq or Wi-Fi dies). Never invents tool calls.
 """
@@ -12,6 +16,7 @@ from __future__ import annotations
 import json
 import os
 from pathlib import Path
+from typing import Any
 
 from dotenv import load_dotenv
 from openai import APIError, APITimeoutError, OpenAI, OpenAIError
@@ -91,6 +96,7 @@ SYSTEM_PROMPT = (
     "You are the placement-cell assistant at a college. "
     "You help staff with student resumes and emails to companies. "
     "Use the available tools to complete the task. "
+    "You may take multiple steps: call a tool, see its result, then call another. "
     "Files you can work with live under sandbox/ (e.g. sandbox/resumes/, sandbox/placement_list.xlsx)."
 )
 
@@ -109,7 +115,94 @@ def _require_task(task: str) -> str:
     return TASK_PROMPTS[task]
 
 
-def _propose_live(task: str, text: str, doc: str) -> list[dict]:
+def _load_replay(task: str, doc: str) -> dict:
+    _require_task(task)
+    path = _replay_path(task, doc)
+    if not path.is_file():
+        raise FileNotFoundError(
+            f"No replay file for task={task!r} doc={doc!r}. "
+            f"Expected {path}. Run scripts/try_agent.py once with LLM_MODE=live."
+        )
+    data = json.loads(path.read_text(encoding="utf-8"))
+    if not isinstance(data, dict):
+        raise ValueError(f"Replay file must be a JSON object: {path}")
+    return data
+
+
+def _calls_from_step_blob(blob: Any) -> list[dict]:
+    if isinstance(blob, dict):
+        calls = blob.get("calls", [])
+    elif isinstance(blob, list):
+        calls = blob
+    else:
+        return []
+    return [c for c in calls if isinstance(c, dict)]
+
+
+def _replay_step(task: str, doc: str, step_index: int) -> list[dict]:
+    """Return calls for step_index. Supports legacy one-shot `calls` and multi-step `steps`."""
+    data = _load_replay(task, doc)
+    steps = data.get("steps")
+    if isinstance(steps, list):
+        if step_index < 0 or step_index >= len(steps):
+            return []
+        return _calls_from_step_blob(steps[step_index])
+
+    # Legacy one-shot: only step 0 returns the full call list.
+    if step_index == 0:
+        return _calls_from_step_blob(data)
+    return []
+
+
+def _tool_calls_from_message(message) -> list[dict]:
+    calls: list[dict] = []
+    for tc in message.tool_calls or []:
+        try:
+            args = json.loads(tc.function.arguments or "{}")
+        except json.JSONDecodeError:
+            args = {"_raw": tc.function.arguments}
+        calls.append({"tool": tc.function.name, "args": args, "_id": tc.id})
+    return calls
+
+
+def _user_document_message(task: str, text: str, doc: str) -> dict:
+    prompt = _require_task(task)
+    return {
+        "role": "user",
+        "content": (
+            f"Task: {prompt}\nDocument id: {doc}\n\n"
+            f"--- DOCUMENT START ---\n{text}\n--- DOCUMENT END ---"
+        ),
+    }
+
+
+def _history_to_messages(history: list[dict]) -> list[dict]:
+    """Turn prior (call, output) pairs into assistant tool_calls + tool result messages."""
+    messages: list[dict] = []
+    for i, item in enumerate(history):
+        call = item.get("call") or {}
+        output = item.get("output", "")
+        tool = str(call.get("tool", "?"))
+        args = call.get("args") if isinstance(call.get("args"), dict) else {}
+        tool_id = str(call.get("_id") or f"hist_{i}")
+        messages.append(
+            {
+                "role": "assistant",
+                "content": None,
+                "tool_calls": [
+                    {
+                        "id": tool_id,
+                        "type": "function",
+                        "function": {"name": tool, "arguments": json.dumps(args)},
+                    }
+                ],
+            }
+        )
+        messages.append({"role": "tool", "tool_call_id": tool_id, "content": str(output)})
+    return messages
+
+
+def _propose_live(task: str, text: str, doc: str, history: list[dict] | None = None) -> list[dict]:
     api_key = os.getenv("GROQ_API_KEY", "").strip()
     model = os.getenv("GROQ_MODEL", "").strip()
     if not api_key:
@@ -123,68 +216,72 @@ def _propose_live(task: str, text: str, doc: str) -> list[dict]:
             "model id from console.groq.com into .env."
         )
 
-    prompt = _require_task(task)
+    _require_task(task)
     client = OpenAI(
         api_key=api_key,
         base_url="https://api.groq.com/openai/v1",
         timeout=LIVE_TIMEOUT_S,
     )
-    resp = client.chat.completions.create(
-        model=model,
-        messages=[
-            {"role": "system", "content": SYSTEM_PROMPT},
+    messages: list[dict] = [
+        {"role": "system", "content": SYSTEM_PROMPT},
+        _user_document_message(task, text, doc),
+        *_history_to_messages(history or []),
+    ]
+    if history:
+        messages.append(
             {
                 "role": "user",
-                "content": (
-                    f"Task: {prompt}\nDocument id: {doc}\n\n"
-                    f"--- DOCUMENT START ---\n{text}\n--- DOCUMENT END ---"
-                ),
-            },
-        ],
+                "content": "Continue the task using the tool results above. Call another tool if needed, or stop.",
+            }
+        )
+
+    resp = client.chat.completions.create(
+        model=model,
+        messages=messages,
         tools=TOOLS,
         tool_choice="auto",
         temperature=0,
     )
-    calls: list[dict] = []
-    for tc in resp.choices[0].message.tool_calls or []:
-        try:
-            args = json.loads(tc.function.arguments or "{}")
-        except json.JSONDecodeError:
-            # Keep raw args; the gate will block as malformed.
-            args = {"_raw": tc.function.arguments}
-        calls.append({"tool": tc.function.name, "args": args})
-    return calls
-
-
-def _propose_replay(task: str, doc: str) -> list[dict]:
-    _require_task(task)
-    path = _replay_path(task, doc)
-    if not path.is_file():
-        raise FileNotFoundError(
-            f"No replay file for task={task!r} doc={doc!r}. "
-            f"Expected {path}. Run scripts/try_agent.py once with LLM_MODE=live."
-        )
-    data = json.loads(path.read_text(encoding="utf-8"))
-    calls = data.get("calls")
-    if not isinstance(calls, list):
-        raise ValueError(f"Replay file missing list 'calls': {path}")
-    # Return raw dicts only — never filter or "fix" them.
-    return [c for c in calls if isinstance(c, dict)]
+    return _tool_calls_from_message(resp.choices[0].message)
 
 
 def propose(task: str, text: str, doc: str) -> list[dict]:
-    """Return raw proposed tool calls: [{"tool": str, "args": dict}, ...]. Never executes anything."""
+    """Return raw proposed tool calls for a one-shot run. Never executes anything."""
     mode = os.getenv("LLM_MODE", "replay").strip().lower()
     if mode != "live":
-        return _propose_replay(task, doc)
+        return _replay_step(task, doc, 0)
 
     try:
-        return _propose_live(task, text, doc)
+        calls = _propose_live(task, text, doc, history=None)
+        return [{k: v for k, v in c.items() if k != "_id"} for c in calls]
     except (APITimeoutError, APIError, OpenAIError, TimeoutError, RuntimeError) as exc:
-        # Demo robustness: if a prior live run was saved, use it instead of crashing.
         replay = _replay_path(task, doc)
         if replay.is_file():
-            return _propose_replay(task, doc)
+            return _replay_step(task, doc, 0)
+        raise RuntimeError(
+            f"Groq live call failed ({type(exc).__name__}: {exc}). "
+            "Fix GROQ_API_KEY/GROQ_MODEL/network, or save a replay with try_agent.py first."
+        ) from exc
+
+
+def next_step(task: str, text: str, doc: str, history: list[dict] | None = None) -> list[dict]:
+    """Propose the next tool call(s) given prior steps. Agent never runs tools.
+
+    history: [{"call": {...}, "output": str, "verdict": str}, ...]
+    Returns [] when the agent is done (or the replay has no more steps).
+    """
+    history = history or []
+    mode = os.getenv("LLM_MODE", "replay").strip().lower()
+    if mode != "live":
+        return _replay_step(task, doc, len(history))
+
+    try:
+        calls = _propose_live(task, text, doc, history=history)
+        return [{k: v for k, v in c.items() if k != "_id"} for c in calls]
+    except (APITimeoutError, APIError, OpenAIError, TimeoutError, RuntimeError) as exc:
+        replay = _replay_path(task, doc)
+        if replay.is_file():
+            return _replay_step(task, doc, len(history))
         raise RuntimeError(
             f"Groq live call failed ({type(exc).__name__}: {exc}). "
             "Fix GROQ_API_KEY/GROQ_MODEL/network, or save a replay with try_agent.py first."
@@ -196,21 +293,22 @@ def propose_calls(task: str, document_id: str, document_text: str) -> list[dict]
     return propose(task, document_text, document_id)
 
 
-def save_replay(task: str, doc: str, calls: list[dict]) -> Path:
-    """Save real LLM output so the demo works offline."""
+def save_replay(task: str, doc: str, calls: list[dict] | None = None, steps: list | None = None) -> Path:
+    """Save real LLM output so the demo works offline.
+
+    Pass either one-shot `calls` or multi-step `steps` (list of {"calls": [...]}).
+    """
     _require_task(task)
     REPLAY_DIR.mkdir(exist_ok=True)
     path = _replay_path(task, doc)
-    path.write_text(
-        json.dumps(
-            {
-                "task": task,
-                "doc": doc.replace("\\", "/"),
-                "model": os.getenv("GROQ_MODEL", ""),
-                "calls": calls,
-            },
-            indent=2,
-        ),
-        encoding="utf-8",
-    )
+    payload: dict[str, Any] = {
+        "task": task,
+        "doc": doc.replace("\\", "/"),
+        "model": os.getenv("GROQ_MODEL", ""),
+    }
+    if steps is not None:
+        payload["steps"] = steps
+    else:
+        payload["calls"] = calls or []
+    path.write_text(json.dumps(payload, indent=2), encoding="utf-8")
     return path

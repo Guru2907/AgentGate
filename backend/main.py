@@ -15,8 +15,15 @@ from dotenv import load_dotenv
 from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 
+from fnmatch import fnmatchcase
+
 from backend import db, gate, tools
+<<<<<<< Updated upstream
 from backend.schemas import Decision, InjectRequest, LogEntry, ReviewDecision, RunRequest, RunResult, ToolCall
+=======
+from backend.run_context import RunContext
+from backend.schemas import LogEntry, RunRequest, RunResult, ToolCall
+>>>>>>> Stashed changes
 
 load_dotenv()
 log = logging.getLogger("agentgate")
@@ -26,9 +33,28 @@ DATA = ROOT / "data"
 DOC_FOLDERS = ("clean", "hostile")
 DOC_TYPES = (".txt", ".pdf")
 NOT_EXECUTED = "(not executed)"
+<<<<<<< Updated upstream
 INJECT_DOC = "(injected)"
+=======
+# AGENT_STEPS=1 (default): one-shot propose, demo-safe. AGENT_STEPS=3: multi-step loop (issue #8).
+DEFAULT_AGENT_STEPS = 1
+>>>>>>> Stashed changes
 
 POLICY = gate.load_policy()
+
+
+def _agent_steps() -> int:
+    raw = os.getenv("AGENT_STEPS", str(DEFAULT_AGENT_STEPS)).strip()
+    try:
+        return max(1, min(int(raw), int(POLICY.get("global", {}).get("max_calls_per_run", 3))))
+    except ValueError:
+        return DEFAULT_AGENT_STEPS
+
+
+def _is_sensitive_path(path: str) -> bool:
+    patterns = POLICY.get("global", {}).get("sensitive_files", [])
+    norm = path.replace("\\", "/").removeprefix("./").strip().lower()
+    return any(fnmatchcase(norm, p.lower()) for p in patterns)
 
 
 @asynccontextmanager
@@ -73,8 +99,35 @@ def _read_doc(path: Path) -> str:
         raise HTTPException(status_code=422, detail="PDF reading arrives with extract.py")
 
 
-def fake_propose(task: str, doc: str) -> list[dict]:
-    """Stand-in for the LLM (AGENT=fake): hostile docs 'fall for' the hidden instruction."""
+def fake_propose(task: str, doc: str, history: list | None = None) -> list[dict]:
+    """Stand-in for the LLM (AGENT=fake): hostile docs 'fall for' the hidden instruction.
+
+    With history (multi-step), the chain doc does read → email. Without history, one-shot
+    behaviour matches the original demo (hostile → send_email).
+    """
+    history = history or []
+    # Chain-attack document (issue #8): read sensitive file, then email a summary.
+    if doc.endswith("resume_h06_chain.txt"):
+        if not history:
+            return [{"tool": "read_file", "args": {"path": "sandbox/placement_list.xlsx"}}]
+        if len(history) == 1:
+            prior = history[0].get("output", "")
+            return [
+                {
+                    "tool": "send_email",
+                    "args": {
+                        "to": "hr@partner-company.com",
+                        "subject": "Placement list summary",
+                        "body": f"Short summary from the file:\n{prior[:400]}",
+                    },
+                }
+            ]
+        return []
+
+    if history:
+        # One-shot fakes have nothing more to do after the first step.
+        return []
+
     if doc.startswith("hostile/"):
         return [
             {
@@ -101,15 +154,18 @@ def fake_propose(task: str, doc: str) -> list[dict]:
     return [{"tool": "summarise", "args": {"document_id": doc}}]
 
 
-def _propose(task: str, text: str, doc: str) -> list:
+def _propose(task: str, text: str, doc: str, history: list | None = None) -> list:
+    history = history or []
     if os.getenv("AGENT", "fake") == "llm":
         from backend import agent
 
         try:
+            if history or _agent_steps() > 1:
+                return agent.next_step(task, text, doc, history)
             return agent.propose(task, text, doc)
         except Exception as exc:  # demo must not die if the LLM is down: fall back to the fake agent
             log.warning("agent failed (%s); falling back to fake agent", exc)
-    return fake_propose(task, doc)
+    return fake_propose(task, doc, history)
 
 
 def _as_record(raw) -> ToolCall | dict:
@@ -135,6 +191,7 @@ def list_docs() -> list[str]:
     )
 
 
+<<<<<<< Updated upstream
 def _review_timeout_min() -> float:
     return float(os.getenv("REVIEW_TIMEOUT_MIN", "10"))
 
@@ -161,9 +218,70 @@ def _process(task: str, doc: str, raw_calls: list, source: str) -> RunResult:
             review_id = db.add_review(audit_id, task, doc, record, _review_timeout_min())
             output = f"(waiting for human review #{review_id})"
         ctx.record(record, decision, output, POLICY)
+=======
+def _run_one_call(req: RunRequest, raw, ctx: RunContext) -> tuple:
+    """Gate one proposed call, maybe execute it, log it, update RunContext. Returns (record, decision, output)."""
+    record = _as_record(raw)
+    decision = gate.check(raw, req.task, POLICY, ctx=ctx)
+    executed = False
+    output = NOT_EXECUTED
+    if decision.verdict == "ALLOW":  # the ONLY path to a tool
+        try:
+            if isinstance(record, ToolCall):
+                output = tools.execute(record)
+            else:
+                output = "Tool error: malformed call"
+            executed = True
+        except Exception as exc:
+            output = f"Tool error: {exc}"
+            executed = False
+    call_dict = {"tool": record.tool, "args": record.args} if isinstance(record, ToolCall) else (record if isinstance(record, dict) else {})
+    sensitive = (
+        isinstance(record, ToolCall)
+        and record.tool == "read_file"
+        and _is_sensitive_path(str(record.args.get("path", "")))
+    )
+    ctx.record(call_dict, decision.verdict, output, sensitive=sensitive and executed)
+    db.save(req.task, req.doc, record, decision, executed)
+    return record, decision, output
+
+
+@app.post("/api/run")
+def run_task(req: RunRequest) -> RunResult:
+    text = _read_doc(_resolve_doc(req.doc))
+    proposed, decisions, outputs = [], [], []
+    ctx = RunContext()
+    steps = _agent_steps()
+
+    if steps == 1:
+        # Demo-safe default: one-shot propose (same shape as before issue #8).
+        for raw in _propose(req.task, text, req.doc):
+            record, decision, output = _run_one_call(req, raw, ctx)
+            proposed.append(record)
+            decisions.append(decision)
+            outputs.append(output)
+        return RunResult(proposed=proposed, decisions=decisions, outputs=outputs)
+
+    # Multi-step: agent sees prior outputs; stop when it proposes nothing or hits the step cap.
+    history: list[dict] = []
+    for _ in range(steps):
+        batch = _propose(req.task, text, req.doc, history)
+        if not batch:
+            break
+        # One tool call per step keeps the chain readable (read → email).
+        raw = batch[0]
+        record, decision, output = _run_one_call(req, raw, ctx)
+>>>>>>> Stashed changes
         proposed.append(record)
         decisions.append(decision)
         outputs.append(output)
+        call_dict = {"tool": record.tool, "args": record.args} if isinstance(record, ToolCall) else (raw if isinstance(raw, dict) else {})
+        history.append({"call": call_dict, "output": output, "verdict": decision.verdict})
+        if decision.verdict == "BLOCK":
+            # Still allow a follow-up proposal on REVIEW/ALLOW only; on BLOCK the chain usually ends
+            # after one more empty next_step — but keep looping so replays can record a stop.
+            pass
+
     return RunResult(proposed=proposed, decisions=decisions, outputs=outputs)
 
 
