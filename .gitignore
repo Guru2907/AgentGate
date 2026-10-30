@@ -24,3 +24,6 @@ Thumbs.db
 # Markdown kept local only for now (un-ignore README.md before submission)
 *.md
 docs/
+
+# ...except the root README (needed for submission)
+!/README.md
