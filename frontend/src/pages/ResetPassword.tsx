@@ -13,11 +13,9 @@ interface ResetPasswordProps {
   onNavigate: (page: PageId) => void
 }
 
+/** The reset link is /reset-password#token=…; the fragment keeps the token out of server logs. */
 function tokenFromHash(): string {
-  const raw = window.location.hash.replace(/^#\/?/, '')
-  const queryIndex = raw.indexOf('?')
-  if (queryIndex < 0) return ''
-  return new URLSearchParams(raw.slice(queryIndex + 1)).get('token') ?? ''
+  return new URLSearchParams(window.location.hash.replace(/^#/, '')).get('token') ?? ''
 }
 
 export function ResetPassword({ onNavigate }: ResetPasswordProps) {

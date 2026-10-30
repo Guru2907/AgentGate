@@ -152,7 +152,8 @@ def send_password_reset_email(email: str, token: str) -> None:
         raise RuntimeError("Password-reset email is not configured.")
 
     frontend_url = os.getenv("FRONTEND_URL", "http://localhost:5173").rstrip("/")
-    reset_url = f"{frontend_url}/#/reset-password?token={quote(token)}"
+    # token in the fragment, so it never reaches a server log
+    reset_url = f"{frontend_url}/reset-password#token={quote(token)}"
     message = EmailMessage()
     message["Subject"] = "Reset your AgentGate password"
     message["From"] = sender

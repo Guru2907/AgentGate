@@ -2,7 +2,9 @@ import type { ReactNode } from 'react'
 import { Mail, Paperclip, ScanSearch, type LucideIcon } from 'lucide-react'
 
 import type { EgressInfo } from '@/types'
+import { Badge } from '@/components/ui/badge'
 import { docName } from '@/lib/format'
+import { isSensitiveFile } from '@/lib/mockGate'
 
 function Row({ icon: Icon, label, children }: { icon: LucideIcon; label: string; children: ReactNode }) {
   return (
@@ -24,7 +26,14 @@ export function EgressPreview({ egress }: { egress: EgressInfo }) {
       </Row>
       <Row icon={Paperclip} label="Attachment">
         {attachment ? (
-          <span title={attachment}>{docName(attachment)}</span>
+          <>
+            <span title={attachment}>{docName(attachment)}</span>
+            {isSensitiveFile(attachment) && (
+              <Badge variant="secondary" className="font-sans">
+                sensitive
+              </Badge>
+            )}
+          </>
         ) : (
           'none'
         )}

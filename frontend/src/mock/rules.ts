@@ -1,6 +1,6 @@
 import type { TaskId, Verdict } from '@/types'
 
-/** Policy display catalogue: IDs, labels, and task summaries shown in the UI. */
+/** Rule catalogue: ID → short title shown as the decision subtitle. */
 export const RULE_TITLES: Record<string, string> = {
   R1_TOOL_NOT_ALLOWED: 'Intent–action mismatch',
   R2_RECIPIENT_NOT_ALLOWED: 'Recipient not allowlisted',

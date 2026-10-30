@@ -296,14 +296,15 @@ def consume_rate_limit(bucket: str, limit: int, window_seconds: int) -> tuple[bo
 
 def delete_account(user_id: int, workspace_id: int) -> None:
     with closing(_connect()) as conn, conn:
+        # The audit log is append-only, so the workspace's log, outbox and reviews are kept;
+        # only the person's login data is removed and pending reviews can no longer be approved.
         conn.execute("BEGIN IMMEDIATE")
-        conn.execute("DELETE FROM outbox WHERE workspace_id = ?", (workspace_id,))
-        conn.execute("DELETE FROM review_queue WHERE workspace_id = ?", (workspace_id,))
-        conn.execute("DELETE FROM audit_log WHERE workspace_id = ?", (workspace_id,))
         conn.execute("DELETE FROM auth_sessions WHERE user_id = ?", (user_id,))
         conn.execute("DELETE FROM password_reset_tokens WHERE user_id = ?", (user_id,))
         conn.execute("DELETE FROM users WHERE id = ? AND workspace_id = ?", (user_id, workspace_id))
-        conn.execute("DELETE FROM workspaces WHERE id = ?", (workspace_id,))
+        conn.execute("UPDATE review_queue SET status = 'cancelled', decided_at = ? WHERE workspace_id = ? AND status = 'pending'",
+                     (time.time(), workspace_id))
+        conn.execute("UPDATE workspaces SET name = 'Deleted account' WHERE id = ?", (workspace_id,))
 
 
 def save(

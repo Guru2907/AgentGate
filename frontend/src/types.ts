@@ -74,8 +74,6 @@ export interface RunExtras {
 
 export interface ReviewItem {
   id: string
-  backendId?: number
-  callHash?: string
   /** Log row that created this review item (never edited). */
   logId: number
   ts: string
@@ -86,6 +84,8 @@ export interface ReviewItem {
   reason: string
   /** Epoch ms when the item is auto-denied. */
   deadline: number
+  /** Live API: hash of the exact call shown, sent back on approve so a swapped call is refused (R11). */
+  callHash?: string
 }
 
 export interface OutboxItem {

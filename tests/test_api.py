@@ -61,21 +61,48 @@ def test_docs_endpoint_lists_clean_and_hostile(client):
     docs = client.get("/api/docs").json()
     assert "clean/resume_01_asha.txt" in docs
     assert "hostile/resume_h01_hidden_email.txt" in docs
+    assert "hostile/resume_h06_chain.txt" in docs
 
 
-def test_llm_agent_failure_is_reported_without_fake_output(client, monkeypatch):
-    monkeypatch.setenv("AGENT", "llm")
+def test_llm_agent_failure_falls_back_to_fake(client, monkeypatch):
+    monkeypatch.setenv("AGENT", "llm")  # provider down must not break the demo: saved replay or fake agent
     monkeypatch.setenv("LLM_MODE", "live")
     monkeypatch.setenv("GROQ_API_KEY", "")
     monkeypatch.setenv("GROQ_MODEL", "")
-    response = client.post("/api/run", json=HOSTILE)
-    assert response.status_code == 503
-    assert response.json()["detail"] == "The AI provider is unavailable. Check the server configuration and try again."
+    body = client.post("/api/run", json=HOSTILE).json()
+    assert body["decisions"][0]["verdict"] == "BLOCK"
 
 
 def test_malformed_agent_output_is_blocked_not_crashed(client, monkeypatch):
-    monkeypatch.setattr("backend.main.fake_propose", lambda task, doc: [{"tool": "rm_rf", "args": {}}, "garbage"])
+    monkeypatch.setattr(
+        "backend.main.fake_propose",
+        lambda task, doc, history=None: [{"tool": "rm_rf", "args": {}}, "garbage"],
+    )
     body = client.post("/api/run", json=CLEAN).json()
     assert [d["verdict"] for d in body["decisions"]] == ["BLOCK", "BLOCK"]
     assert all("R6_MALFORMED_CALL" in d["rules"] for d in body["decisions"])
     assert body["outputs"] == ["(not executed)", "(not executed)"]
+
+
+def test_chain_doc_read_then_email_blocked_with_r9(client, monkeypatch):
+    """Issue #8: multi-step chain — ALLOW read, BLOCK email (R9). Default AGENT_STEPS stays 1 for other tests."""
+    monkeypatch.setenv("AGENT_STEPS", "3")
+    monkeypatch.setenv("AGENT", "fake")
+    body = client.post(
+        "/api/run",
+        json={"task": "email_company", "doc": "hostile/resume_h06_chain.txt"},
+    ).json()
+    assert [p["tool"] for p in body["proposed"]] == ["read_file", "send_email"]
+    assert body["decisions"][0]["verdict"] == "ALLOW"
+    assert body["outputs"][0].startswith("[spreadsheet") or "placement_list" in body["outputs"][0]
+    assert body["decisions"][1]["verdict"] == "BLOCK"
+    assert "R9_TAINTED_EGRESS" in body["decisions"][1]["rules"]
+    assert body["outputs"][1] == "(not executed)"
+
+
+def test_default_agent_steps_keeps_one_shot_demo(client, monkeypatch):
+    monkeypatch.delenv("AGENT_STEPS", raising=False)
+    monkeypatch.setenv("AGENT", "fake")
+    body = client.post("/api/run", json=HOSTILE).json()
+    assert len(body["proposed"]) == 1
+    assert body["decisions"][0]["verdict"] == "BLOCK"
