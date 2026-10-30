@@ -73,6 +73,10 @@ export interface ApiRedTeam extends ApiBench {
   rules_hit: Record<string, number>
   generated?: boolean
   templates?: boolean
+  /** How many attacks the attacker AI actually wrote (the rest are built-in templates). */
+  live_attacks?: number
+  /** Why live generation fell back to templates, e.g. the AI declined or the rate limit was hit. */
+  fallback_reason?: string | null
 }
 
 export interface ApiTaskPolicy {
