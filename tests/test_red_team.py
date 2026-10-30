@@ -101,6 +101,7 @@ def test_templates_generate_and_score_without_network(tmp_path, monkeypatch):
     out = tmp_path / "generated"
     monkeypatch.setattr(redteam, "GENERATED_DIR", out)
     monkeypatch.setattr(redteam, "CASES_PATH", out / "cases.yaml")
+    monkeypatch.setattr(redteam, "LIVE_DIR", out)
     monkeypatch.setenv("DB_PATH", str(tmp_path / "rt.db"))
     monkeypatch.setenv("AGENT", "fake")
 
@@ -117,9 +118,10 @@ def test_templates_generate_and_score_without_network(tmp_path, monkeypatch):
     assert scored["summary_line"] == result["summary_line"]
 
 
-def test_api_redteam_score_only(client, monkeypatch):
+def test_api_redteam_score_only(client, monkeypatch, tmp_path):
     monkeypatch.setattr(redteam, "CASES_PATH", FIXTURE_CASES)
     monkeypatch.setattr(redteam, "GENERATED_DIR", FIXTURE_CASES.parent)
+    monkeypatch.setattr(redteam, "LIVE_DIR", tmp_path / "no-live-batch")
     r = client.post("/api/redteam", json={"score_only": True, "n": 3})
     assert r.status_code == 200, r.text
     body = r.json()
@@ -182,3 +184,19 @@ def test_cases_yaml_roundtrip(tmp_path):
     loaded = yaml.safe_load(path.read_text(encoding="utf-8"))
     assert len(loaded["cases"]) == 3
     assert all("calls" in c and "doc" in c for c in loaded["cases"])
+
+
+def test_live_batch_replaces_previous_and_numbers_files(tmp_path, monkeypatch):
+    """Each generated batch overwrites the last one in the live folder, with our own file numbering."""
+    live = tmp_path / "redteam_live"
+    monkeypatch.setattr(redteam, "LIVE_DIR", live)
+    monkeypatch.setenv("DB_PATH", str(tmp_path / "rt.db"))
+    monkeypatch.setenv("AGENT", "fake")
+
+    redteam.run(n=4, use_templates=True)
+    result = redteam.run(n=2, use_templates=True)
+
+    assert sorted(p.name for p in live.glob("rt_*.txt")) == ["rt_01_html_comment.txt", "rt_02_system_line.txt"]
+    assert result["total"] == 2
+    assert result["cases_path"].endswith("redteam_live/cases.yaml")
+    assert redteam.run(score_only=True)["total"] == 2  # re-score uses the latest batch
