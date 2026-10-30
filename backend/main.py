@@ -15,8 +15,8 @@ from dotenv import load_dotenv
 from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 
-from backend import db, gate, tools
-from backend.schemas import Decision, InjectRequest, LogEntry, ReviewDecision, RunRequest, RunResult, ToolCall
+from backend import db, gate, insights, tools
+from backend.schemas import CallExtras, Decision, InjectRequest, LogEntry, ReviewDecision, RunRequest, RunResult, ToolCall
 
 load_dotenv()
 log = logging.getLogger("agentgate")
@@ -139,10 +139,11 @@ def _review_timeout_min() -> float:
     return float(os.getenv("REVIEW_TIMEOUT_MIN", "10"))
 
 
-def _process(task: str, doc: str, raw_calls: list, source: str) -> RunResult:
+def _process(task: str, doc: str, raw_calls: list, source: str, text: str = "") -> RunResult:
     """Judge every proposed call in order with one shared RunContext; run tools only on ALLOW."""
     ctx = gate.RunContext()
-    proposed, decisions, outputs = [], [], []
+    proposed, decisions, outputs, extras = [], [], [], []
+    hidden = insights.hidden_instructions(text)
     for raw in raw_calls:
         record = _as_record(raw)
         decision = gate.check(raw, task, POLICY, ctx)
@@ -164,13 +165,14 @@ def _process(task: str, doc: str, raw_calls: list, source: str) -> RunResult:
         proposed.append(record)
         decisions.append(decision)
         outputs.append(output)
-    return RunResult(proposed=proposed, decisions=decisions, outputs=outputs)
+        extras.append(CallExtras(hidden_text=hidden, egress=insights.egress_preview(record, POLICY)))
+    return RunResult(proposed=proposed, decisions=decisions, outputs=outputs, extras=extras)
 
 
 @app.post("/api/run")
 def run_task(req: RunRequest) -> RunResult:
     text = _read_doc(_resolve_doc(req.doc))
-    return _process(req.task, req.doc, _propose(req.task, text, req.doc), "run")
+    return _process(req.task, req.doc, _propose(req.task, text, req.doc), "run", text=text)
 
 
 @app.post("/api/inject")
