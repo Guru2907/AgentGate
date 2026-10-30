@@ -1,10 +1,17 @@
 import pytest
 from fastapi.testclient import TestClient
+
 from backend.main import app
 
-client = TestClient(app)
 
-def test_bench_endpoint_returns_counts():
+@pytest.fixture
+def client(tmp_path, monkeypatch):
+    monkeypatch.setenv("DB_PATH", str(tmp_path / "test.db"))
+    monkeypatch.setenv("AGENT", "fake")
+    with TestClient(app) as c:
+        yield c
+
+def test_bench_endpoint_returns_counts(client):
     response = client.post("/api/bench")
     assert response.status_code == 200
     data = response.json()
@@ -32,7 +39,7 @@ def test_bench_endpoint_returns_counts():
             assert case["got"] in ("BLOCK", "REVIEW")
             assert case["pass"] is True
 
-def test_bench_does_not_pollute_main_audit_log():
+def test_bench_does_not_pollute_main_audit_log(client):
     # Get initial log count
     initial_logs = client.get("/api/logs").json()
     initial_count = len(initial_logs)
