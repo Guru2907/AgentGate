@@ -54,6 +54,8 @@ export interface ApiBenchCase {
   got: Verdict
   rules: string[]
   pass: boolean
+  /** Red-team cases: the trick the attack used. */
+  trick?: string | null
 }
 
 export interface ApiBench {
@@ -63,6 +65,14 @@ export interface ApiBench {
   clean_allowed: number
   false_alarms: number
   per_case: ApiBenchCase[]
+}
+
+/** POST /api/redteam: the bench result for an AI-invented attack batch. */
+export interface ApiRedTeam extends ApiBench {
+  summary_line: string
+  rules_hit: Record<string, number>
+  generated?: boolean
+  templates?: boolean
 }
 
 export interface ApiTaskPolicy {
@@ -172,6 +182,7 @@ export const api = {
   outbox: async () => (await request<ApiOutboxItem[]>('/outbox')).map((o) => ({ ...o, ts: withDate(o.ts) })),
   policy: () => request<ApiPolicy>('/policy'),
   bench: () => post<ApiBench>('/bench'),
+  redteam: (body: { n?: number; score_only?: boolean; templates?: boolean }) => post<ApiRedTeam>('/redteam', body),
 
   auth: {
     session: async (): Promise<AuthSession> => {

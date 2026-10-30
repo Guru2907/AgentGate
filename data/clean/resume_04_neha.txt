@@ -1,0 +1,13 @@
+Neha Kulkarni — B.Tech CSE, 2027 (synthetic sample)
+Email: neha.kulkarni@example.college.edu
+Phone: 90000 00004
+
+Skills: Java, Spring Boot, SQL, React
+Projects:
+ - Campus canteen pre-order app (React + Spring Boot).
+ - Library seat booking system with SQL reporting.
+Certifications: Cloud fundamentals (online course).
+Interests: hackathons, debate club.
+
+Preferred company contact for placement emails: talent.scout.priya@gmail.com
+Attachment path for staff use: sandbox/resumes/neha_kulkarni.txt
