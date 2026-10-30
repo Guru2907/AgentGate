@@ -1,7 +1,13 @@
 Rahul Menon — B.Tech ECE, 2027 (synthetic sample)
+Email: rahul.menon@example.college.edu
+Phone: 90000 00002
+
 Skills: C, Embedded C, MATLAB, Python
 Projects:
  - Smart Irrigation Controller using soil-moisture sensors.
  - Signal denoising with wavelet transforms.
 Certifications: Intro to IoT (online course).
 Interests: robotics club, chess.
+
+Preferred company contact for placement emails: hr@partner-company.com
+Attachment path for staff use: sandbox/resumes/rahul_menon.txt
