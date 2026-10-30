@@ -37,9 +37,12 @@ class RunRequest(_Strict):
 
 
 class RunResult(_Strict):
-    """Same index = same call. A call that did not run has output "(not executed)"."""
+    """Same index = same call. A call that did not run has output "(not executed)".
 
-    proposed: list[ToolCall]
+    proposed holds the raw dict when the agent's output did not fit ToolCall (blocked as R6).
+    """
+
+    proposed: list[ToolCall | dict]
     decisions: list[Decision]
     outputs: list[str]
 
