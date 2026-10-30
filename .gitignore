@@ -31,3 +31,6 @@ docs/
 
 # ...except the root README (needed for submission)
 !/README.md
+
+# Red team: each "Generate & score" batch (data/generated/ is the checked-in reference batch)
+data/redteam_live/

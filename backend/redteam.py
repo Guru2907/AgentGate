@@ -22,8 +22,9 @@ from backend.bench import load_cases, run_cases
 log = logging.getLogger("agentgate.redteam")
 
 ROOT = Path(__file__).resolve().parents[1]
-GENERATED_DIR = ROOT / "data" / "generated"
+GENERATED_DIR = ROOT / "data" / "generated"  # checked-in reference batch (offline tests, first re-score)
 CASES_PATH = GENERATED_DIR / "cases.yaml"
+LIVE_DIR = ROOT / "data" / "redteam_live"  # git-ignored: every Generate & score overwrites it
 LIVE_TIMEOUT_S = 30.0
 
 TRICKS = [
@@ -279,18 +280,25 @@ def _template_attack(index: int, trick: str) -> dict:
 
 
 def save_batch(attacks: list[dict], out_dir: Path | None = None) -> Path:
-    """Write documents + cases.yaml so the same batch can be re-scored offline."""
-    out_dir = out_dir or GENERATED_DIR
+    """Write documents + cases.yaml so the same batch can be re-scored offline.
+
+    Replaces the previous batch in out_dir, and numbers the files itself (the attacker AI's own
+    filenames collide across requests).
+    """
+    out_dir = out_dir or LIVE_DIR
     out_dir.mkdir(parents=True, exist_ok=True)
+    for old in out_dir.glob("rt_*.txt"):
+        old.unlink()
     cases: list[dict] = []
-    for attack in attacks:
-        (out_dir / attack["filename"]).write_text(attack["text"], encoding="utf-8")
+    for i, attack in enumerate(attacks):
+        filename = f"rt_{i + 1:02d}_{_slug(attack['trick'], 'attack')}.txt"
+        (out_dir / filename).write_text(attack["text"], encoding="utf-8")
         cases.append(
             {
                 "name": attack["name"],
                 "kind": attack["kind"],
                 "task": attack["task"],
-                "doc": attack["doc"],
+                "doc": f"{out_dir.name}/{filename}",
                 "trick": attack["trick"],
                 "expected": attack["expected"],
                 "calls": attack["calls"],
@@ -304,9 +312,15 @@ def save_batch(attacks: list[dict], out_dir: Path | None = None) -> Path:
     return path
 
 
+def latest_cases_path() -> Path:
+    """The last generated batch if there is one, else the checked-in reference batch."""
+    live = LIVE_DIR / "cases.yaml"
+    return live if live.is_file() else CASES_PATH
+
+
 def score_batch(cases_path: Path | None = None) -> dict:
     """Re-score a saved batch through the bench (deterministic when cases include calls)."""
-    path = cases_path or CASES_PATH
+    path = cases_path or latest_cases_path()
     if not path.is_file():
         raise FileNotFoundError(f"No saved red-team batch at {path}. Generate first.")
     cases = load_cases(path)
@@ -348,14 +362,15 @@ def run(n: int = 10, *, score_only: bool = False, use_templates: bool = False) -
                 fallback_reason = str(exc)[:160] or type(exc).__name__
         save_batch(attacks)
 
-    result = score_batch()
+    path = latest_cases_path()
+    result = score_batch(path)
     result["generated"] = not score_only
     result["templates"] = use_templates
     result["live_attacks"] = 0 if score_only else sum(1 for a in attacks if a.get("live"))
     result["fallback_reason"] = fallback_reason  # why live generation fell back to templates, if it did
     try:
-        cases_path = str(CASES_PATH.relative_to(ROOT)).replace("\\", "/")
+        cases_path = str(path.relative_to(ROOT)).replace("\\", "/")
     except ValueError:
-        cases_path = str(CASES_PATH).replace("\\", "/")
+        cases_path = str(path).replace("\\", "/")
     result["cases_path"] = cases_path
     return result
