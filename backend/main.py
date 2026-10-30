@@ -255,7 +255,8 @@ def decide_review(review_id: int, body: ReviewDecision) -> dict:
 
 @app.post("/api/bench")
 def run_bench() -> dict:
-    raise _not_yet("attack bench")
+    from backend import bench
+    return bench.run_bench(_process, _propose, _read_doc, _resolve_doc)
 
 
 @app.get("/api/policy")
