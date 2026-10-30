@@ -44,6 +44,13 @@ export interface LogEntry {
   prev_hash?: string
 }
 
+export interface DocumentInfo {
+  name: string
+  type: DocType
+  /** RunRequest.doc value, such as a path returned by the backend. */
+  path: string
+}
+
 // ---------------------------------------------------------------------------
 // UI-only types (not part of the backend contract)
 // ---------------------------------------------------------------------------

@@ -9,6 +9,13 @@ def client(tmp_path, monkeypatch):
     monkeypatch.setenv("DB_PATH", str(tmp_path / "test.db"))
     monkeypatch.setenv("AGENT", "fake")
     with TestClient(app) as c:
+        c.headers.update({"Origin": "http://localhost:5173"})
+        registered = c.post(
+            "/api/auth/signup",
+            json={"full_name": "Bench Test", "email": "bench-test@example.com", "password": "test-password-123"},
+        )
+        assert registered.status_code == 201
+        c.headers.update({"X-CSRF-Token": registered.json()["csrf_token"]})
         yield c
 
 def test_bench_endpoint_returns_counts(client):

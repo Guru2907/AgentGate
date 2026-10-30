@@ -5,7 +5,7 @@ Mirrored in frontend/src/api.ts — keep both in sync.
 
 from typing import Literal
 
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, EmailStr, Field, field_validator
 
 ToolName = Literal["summarise", "send_email", "read_file", "delete_file"]
 Verdict = Literal["ALLOW", "BLOCK", "REVIEW"]
@@ -101,6 +101,71 @@ class RedTeamRequest(_Strict):
     n: int = Field(default=10, ge=1, le=20)
     score_only: bool = False
     templates: bool = False  # offline synthetic attacks (no Groq)
+
+
+class SignupRequest(_Strict):
+    full_name: str = Field(min_length=2, max_length=80)
+    email: EmailStr
+    password: str = Field(min_length=12, max_length=128)
+
+    @field_validator("full_name")
+    @classmethod
+    def clean_full_name(cls, value: str) -> str:
+        value = " ".join(value.split())
+        if len(value) < 2:
+            raise ValueError("Enter your full name.")
+        return value
+
+    @field_validator("email")
+    @classmethod
+    def normalize_email(cls, value: str) -> str:
+        return value.strip().casefold()
+
+
+class LoginRequest(_Strict):
+    email: EmailStr
+    password: str = Field(min_length=1, max_length=128)
+
+    @field_validator("email")
+    @classmethod
+    def normalize_email(cls, value: str) -> str:
+        return value.strip().casefold()
+
+
+class ProfileUpdateRequest(_Strict):
+    full_name: str = Field(min_length=2, max_length=80)
+
+    @field_validator("full_name")
+    @classmethod
+    def clean_full_name(cls, value: str) -> str:
+        value = " ".join(value.split())
+        if len(value) < 2:
+            raise ValueError("Enter your full name.")
+        return value
+
+
+class ChangePasswordRequest(_Strict):
+    current_password: str = Field(min_length=1, max_length=128)
+    new_password: str = Field(min_length=12, max_length=128)
+
+
+class PasswordResetRequest(_Strict):
+    email: EmailStr
+
+    @field_validator("email")
+    @classmethod
+    def normalize_email(cls, value: str) -> str:
+        return value.strip().casefold()
+
+
+class PasswordResetConfirmRequest(_Strict):
+    token: str = Field(min_length=32, max_length=128)
+    new_password: str = Field(min_length=12, max_length=128)
+
+
+class DeleteAccountRequest(_Strict):
+    password: str = Field(min_length=1, max_length=128)
+    confirmation: Literal["DELETE"]
 
 
 # Response shapes for POST /api/bench and POST /api/redteam (returned as plain dicts today).

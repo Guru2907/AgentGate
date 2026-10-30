@@ -11,11 +11,14 @@ function Sheet(props: React.ComponentProps<typeof SheetPrimitive.Root>) {
 function SheetContent({ className, children, ...props }: React.ComponentProps<typeof SheetPrimitive.Content>) {
   return (
     <SheetPrimitive.Portal>
-      <SheetPrimitive.Overlay data-slot="sheet-overlay" className="bg-overlay fixed inset-0 z-50" />
+      <SheetPrimitive.Overlay
+        data-slot="sheet-overlay"
+        className="bg-overlay data-[state=open]:animate-in data-[state=closed]:animate-out data-[state=closed]:fade-out-0 data-[state=open]:fade-in-0 fixed inset-0 z-50 duration-200"
+      />
       <SheetPrimitive.Content
         data-slot="sheet-content"
         className={cn(
-          'bg-card text-card-foreground fixed inset-y-0 right-0 z-50 flex h-full w-[30rem] max-w-[90vw] flex-col gap-0 border-l transition ease-in-out outline-none',
+          'ag-sheet-in bg-card text-card-foreground fixed inset-y-0 right-0 z-50 flex h-full w-[30rem] max-w-[90vw] flex-col gap-0 border-l outline-none',
           className,
         )}
         {...props}

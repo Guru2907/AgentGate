@@ -82,20 +82,55 @@ export interface ApiPolicy {
   }
 }
 
+export type AuthUser = {
+  id: number
+  workspace_id: number
+  full_name: string
+  email: string
+  created_at: string
+  updated_at: string
+}
+
+export type AuthSession = {
+  user: AuthUser | null
+  csrf_token: string | null
+  password_reset_enabled: boolean
+}
+
+export type AuthPayload = {
+  user: AuthUser
+  csrf_token: string
+}
+
 export class ApiError extends Error {
   readonly status: number
+  readonly detail: string
   constructor(status: number, message: string) {
     super(message)
     this.status = status
+    this.detail = message
   }
 }
 
+// Session cookie is HttpOnly; the CSRF token from the session/login response goes on every write.
+let csrfToken: string | null = null
+
+export function setCsrfToken(token: string | null) {
+  csrfToken = token
+}
+
 async function request<T>(path: string, options: RequestInit = {}): Promise<T> {
-  const resp = await fetch(`/api${path}`, {
-    headers: { 'Content-Type': 'application/json' },
-    ...options,
-  })
+  const headers = new Headers(options.headers)
+  if (!headers.has('Content-Type') && options.body != null) headers.set('Content-Type', 'application/json')
+  const method = (options.method ?? 'GET').toUpperCase()
+  if (method !== 'GET' && method !== 'HEAD' && csrfToken) headers.set('X-CSRF-Token', csrfToken)
+
+  const resp = await fetch(`/api${path}`, { ...options, headers, credentials: 'include' })
   if (!resp.ok) {
+    if (resp.status === 401 && !path.startsWith('/auth/')) {
+      setCsrfToken(null)
+      window.dispatchEvent(new CustomEvent('agentgate:session-expired'))
+    }
     const body = await resp.json().catch(() => null)
     throw new ApiError(resp.status, body?.detail ? String(body.detail) : `${resp.status} ${resp.statusText}`)
   }
@@ -137,4 +172,43 @@ export const api = {
   outbox: async () => (await request<ApiOutboxItem[]>('/outbox')).map((o) => ({ ...o, ts: withDate(o.ts) })),
   policy: () => request<ApiPolicy>('/policy'),
   bench: () => post<ApiBench>('/bench'),
+
+  auth: {
+    session: async (): Promise<AuthSession> => {
+      const session = await request<AuthSession>('/auth/session')
+      setCsrfToken(session.csrf_token)
+      return session
+    },
+    signup: async (body: { full_name: string; email: string; password: string }) => {
+      const result = await post<AuthPayload>('/auth/signup', body)
+      setCsrfToken(result.csrf_token)
+      return result
+    },
+    login: async (body: { email: string; password: string }) => {
+      const result = await post<AuthPayload>('/auth/login', body)
+      setCsrfToken(result.csrf_token)
+      return result
+    },
+    logout: async () => {
+      try {
+        await post<{ ok: boolean }>('/auth/logout')
+      } finally {
+        setCsrfToken(null)
+      }
+    },
+    updateProfile: (body: { full_name: string }) =>
+      request<AuthUser>('/auth/profile', { method: 'PATCH', body: JSON.stringify(body) }),
+    changePassword: async (body: { current_password: string; new_password: string }) => {
+      const result = await post<{ ok: boolean; csrf_token: string }>('/auth/change-password', body)
+      setCsrfToken(result.csrf_token)
+      return result
+    },
+    deleteAccount: async (body: { password: string; confirmation: 'DELETE' }) => {
+      await request<{ ok: boolean }>('/auth/account', { method: 'DELETE', body: JSON.stringify(body) })
+      setCsrfToken(null)
+    },
+    requestPasswordReset: (body: { email: string }) => post<{ message: string }>('/auth/password-reset', body),
+    confirmPasswordReset: (body: { token: string; new_password: string }) =>
+      post<{ ok: boolean }>('/auth/password-reset/confirm', body),
+  },
 }

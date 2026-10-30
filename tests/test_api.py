@@ -14,6 +14,13 @@ def client(tmp_path, monkeypatch):
     monkeypatch.setenv("DB_PATH", str(tmp_path / "test.db"))
     monkeypatch.setenv("AGENT", "fake")
     with TestClient(app) as c:
+        c.headers.update({"Origin": "http://localhost:5173"})
+        registered = c.post(
+            "/api/auth/signup",
+            json={"full_name": "API Test", "email": "api-test@example.com", "password": "test-password-123"},
+        )
+        assert registered.status_code == 201
+        c.headers.update({"X-CSRF-Token": registered.json()["csrf_token"]})
         yield c
 
 
@@ -58,7 +65,10 @@ def test_docs_endpoint_lists_clean_and_hostile(client):
 
 
 def test_llm_agent_failure_falls_back_to_fake(client, monkeypatch):
-    monkeypatch.setenv("AGENT", "llm")  # agent.py is still a stub here: must not break the demo
+    monkeypatch.setenv("AGENT", "llm")  # provider down must not break the demo: saved replay or fake agent
+    monkeypatch.setenv("LLM_MODE", "live")
+    monkeypatch.setenv("GROQ_API_KEY", "")
+    monkeypatch.setenv("GROQ_MODEL", "")
     body = client.post("/api/run", json=HOSTILE).json()
     assert body["decisions"][0]["verdict"] == "BLOCK"
 
