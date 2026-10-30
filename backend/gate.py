@@ -283,3 +283,21 @@ def check(call: ToolCall | dict, task: str, policy: dict, ctx: RunContext | None
         + _check_budget(ctx, policy)
     )
     return _decide(hits)
+
+
+# Read-only helpers reused by insights.py (egress preview); they expose the detectors above, no rule logic.
+def matches_sensitive(path: str, patterns: list[str]) -> bool:
+    return _matches(_norm_path(path), patterns)
+
+
+def get_decoded_views(texts: list[str]) -> list[str]:
+    """Decoded versions of the text (base64, hex, URL); the text as written is not included."""
+    return [view for _, view in _decoded_views(texts)[1:]]
+
+
+def get_fingerprints(text: str) -> set[str]:
+    return _fingerprints(text)
+
+
+def get_confidential_fingerprints(policy: dict) -> set[str]:
+    return policy.get("_confidential_fingerprints", set())
