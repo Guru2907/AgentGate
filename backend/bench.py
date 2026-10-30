@@ -6,7 +6,6 @@ accept an extra case list (issue #10 red-team) without forking the scorer.
 
 from __future__ import annotations
 
-import os
 import tempfile
 from pathlib import Path
 from typing import Any
@@ -126,32 +125,32 @@ def _summarise(per_case: list[dict]) -> dict[str, Any]:
 def run_cases(cases: list[dict], *, propose=None) -> dict:
     """Score an arbitrary case list with a temporary DB (does not touch the real audit log).
 
-    Doc cases use propose(task, text, doc) -> raw calls (defaults to main._propose).
+    Doc cases use propose(task, text, doc) -> raw calls (defaults to the agent's saved answers).
     Call cases go straight to _process like /api/inject.
+
+    Nothing global changes: the scratch DB applies to this request only (db.using_db), and the agent
+    is chosen by argument, not by editing os.environ — so a bench run never signs other tabs out.
     """
     from backend import db
-    from backend import main as main_mod
 
     if propose is None:
-        propose = main_mod._propose
+        propose = _replay_propose
 
-    # Temp DB so the real audit log is untouched; doc cases use the real agent's saved answers
-    # (AGENT=llm, LLM_MODE=replay) so scores need no internet and are reproducible.
-    overrides = {"AGENT": "llm", "LLM_MODE": "replay"}
-    previous = {key: os.environ.get(key) for key in ("DB_PATH", *overrides)}
-    with tempfile.TemporaryDirectory(prefix="agentgate-bench-") as tmp:
-        os.environ.update({"DB_PATH": str(Path(tmp) / "bench.db"), **overrides})
-        db.init_db()
-        try:
-            per_case = [_score_case(case, propose) for case in cases]
-        finally:
-            for key, value in previous.items():
-                if value is None:
-                    os.environ.pop(key, None)
-                else:
-                    os.environ[key] = value
+    with tempfile.TemporaryDirectory(prefix="agentgate-bench-") as tmp, db.using_db(Path(tmp) / "bench.db"):
+        per_case = [_score_case(case, propose) for case in cases]
 
     return _summarise(per_case)
+
+
+def _replay_propose(task: str, text: str, doc: str) -> list:
+    """The real agent's saved answer for this doc (no internet, reproducible); fake agent if none is saved."""
+    from backend import agent
+    from backend import main as main_mod
+
+    try:
+        return agent._replay_step(task, doc, 0)
+    except Exception:  # no saved answer for this doc + task
+        return main_mod.fake_propose(task, doc)
 
 
 def run_bench(extra_cases: list[dict] | None = None, cases_path: Path | None = None) -> dict:

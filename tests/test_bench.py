@@ -60,3 +60,30 @@ def test_bench_does_not_pollute_main_audit_log(client):
     
     # Main audit log must remain exactly the same
     assert initial_count == final_count
+
+def test_bench_scratch_db_does_not_leak_to_other_requests(tmp_path, monkeypatch):
+    """Regression: the bench used to swap os.environ["DB_PATH"], so requests running at the same time
+    (Gate Log polling, session checks) hit the scratch DB, found no session and signed the user out."""
+    import os
+    import threading
+
+    from backend import bench, db
+
+    monkeypatch.setenv("DB_PATH", str(tmp_path / "real.db"))
+    real = db._db_path()
+    seen: dict[str, object] = {}
+
+    def propose(task, text, doc):
+        seen["bench"] = db._db_path()
+        other = threading.Thread(target=lambda: seen.update(other=db._db_path(), env=os.environ.get("DB_PATH")))
+        other.start()
+        other.join()
+        return [{"tool": "summarise", "args": {"document_id": doc}}]
+
+    bench.run_cases([{"name": "c", "kind": "clean", "task": "summarise_resume",
+                      "doc": "clean/resume_01_asha.txt", "expected": "ALLOW"}], propose=propose)
+
+    assert seen["bench"] != real  # the bench itself scores on a scratch DB
+    assert seen["other"] == real  # everyone else keeps the real DB
+    assert seen["env"] == str(tmp_path / "real.db")
+    assert db._db_path() == real
