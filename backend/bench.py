@@ -97,6 +97,7 @@ def _score_case(case: dict, propose) -> dict[str, Any]:
     return {
         "name": name,
         "kind": kind,
+        "task": task,
         "expected": expected,
         "got": got,
         "rules": rules,
@@ -134,17 +135,21 @@ def run_cases(cases: list[dict], *, propose=None) -> dict:
     if propose is None:
         propose = main_mod._propose
 
-    prev_db = os.environ.get("DB_PATH")
+    # Temp DB so the real audit log is untouched; doc cases use the real agent's saved answers
+    # (AGENT=llm, LLM_MODE=replay) so scores need no internet and are reproducible.
+    overrides = {"AGENT": "llm", "LLM_MODE": "replay"}
+    previous = {key: os.environ.get(key) for key in ("DB_PATH", *overrides)}
     with tempfile.TemporaryDirectory(prefix="agentgate-bench-") as tmp:
-        os.environ["DB_PATH"] = str(Path(tmp) / "bench.db")
+        os.environ.update({"DB_PATH": str(Path(tmp) / "bench.db"), **overrides})
         db.init_db()
         try:
             per_case = [_score_case(case, propose) for case in cases]
         finally:
-            if prev_db is None:
-                os.environ.pop("DB_PATH", None)
-            else:
-                os.environ["DB_PATH"] = prev_db
+            for key, value in previous.items():
+                if value is None:
+                    os.environ.pop(key, None)
+                else:
+                    os.environ[key] = value
 
     return _summarise(per_case)
 
