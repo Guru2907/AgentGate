@@ -12,6 +12,7 @@ Every action an AI proposes is checked against policy (**ALLOW**, **BLOCK** or *
 ![React](https://img.shields.io/badge/React-19-61DAFB?logo=react&logoColor=black)
 ![TypeScript](https://img.shields.io/badge/TypeScript-3178C6?logo=typescript&logoColor=white)
 ![Tailwind CSS](https://img.shields.io/badge/Tailwind_CSS-v4-06B6D4?logo=tailwindcss&logoColor=white)
+[![CI](https://github.com/Guru2907/AgentGate/actions/workflows/ci.yml/badge.svg)](https://github.com/Guru2907/AgentGate/actions/workflows/ci.yml)
 ![Status](https://img.shields.io/badge/status-in%20development-F4511E)
 
 *AfterHours 1.0 — "Code Beyond the Clock" · Don Bosco Institute of Technology, Bengaluru*
