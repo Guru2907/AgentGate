@@ -1,69 +1,51 @@
 // All backend calls go through here. Vite proxies /api -> http://localhost:8000.
-// USE_MOCK=true returns src/mock/* data with the same shapes as the real API (see docs/ARCHITECTURE.md).
-import { mockLogs, mockOutbox, mockReview } from '@/mock'
+// Types mirror backend/schemas.py exactly — keep both in sync.
+// USE_MOCK=true returns src/mock/* data with the same shapes as the real API.
+import { mockDocs, mockLogs, mockRun } from '@/mock'
 
 export const USE_MOCK = true
 
 export type Verdict = 'ALLOW' | 'BLOCK' | 'REVIEW'
 export type ToolName = 'summarise' | 'send_email' | 'read_file' | 'delete_file'
 export type TaskName = 'summarise_resume' | 'email_company'
+export type Source = 'run' | 'inject' | 'review' | 'timeout'
 
 export interface ToolCall {
   tool: ToolName
   args: Record<string, unknown>
 }
 
-export interface RuleHit {
-  rule_id: string
-  severity: 'block' | 'review'
-  message: string
-}
-
-export interface Egress {
-  recipient: string | null
-  attachment: string | null
-  detected: string[]
-}
-
-export interface HumanOverride {
-  by: string
-  action: 'approve' | 'deny'
-  at: string
-}
-
-export interface AuditRow {
-  id: number
-  ts: string
-  run_id: string
-  source: 'run' | 'inject' | 'review' | 'timeout'
-  task: TaskName
-  doc: string
-  call: ToolCall
+/** Gate verdict for one call. rules[i] and reasons[i] describe the same hit. */
+export interface Decision {
   verdict: Verdict
-  reasons: RuleHit[]
-  egress: Egress | null
-  executed: boolean
-  parent_audit_id: number | null
-  human_override: HumanOverride | null
-  prev_hash: string
-  hash: string
+  rules: string[]
+  reasons: string[]
 }
 
-export interface ReviewItem {
-  id: number
-  audit_id: number
-  status: 'pending' | 'approved' | 'denied' | 'expired'
-  created_at: string
-  expires_at: string
-  row: AuditRow
+export interface RunRequest {
+  task: TaskName
+  doc: string // path under data/, e.g. "hostile/resume_h01_hidden_email.txt"
 }
 
-export interface OutboxItem {
+/** Same index = same call. A call that did not run has output "(not executed)". */
+export interface RunResult {
+  proposed: ToolCall[]
+  decisions: Decision[]
+  outputs: string[]
+}
+
+export interface LogEntry {
   id: number
   ts: string
-  to: string
-  subject: string
-  attachment: string | null
+  task: string
+  doc: string
+  tool: string
+  args: Record<string, unknown>
+  verdict: Verdict
+  rules: string[]
+  reasons: string[]
+  executed: boolean
+  source: Source
 }
 
 async function request<T>(path: string, options: RequestInit = {}): Promise<T> {
@@ -75,12 +57,12 @@ async function request<T>(path: string, options: RequestInit = {}): Promise<T> {
   return resp.json() as Promise<T>
 }
 
-const mock = <T,>(data: T) => Promise.resolve(data)
+const mock = <T,>(data: T) => new Promise<T>((resolve) => setTimeout(() => resolve(data), 300))
 
 export const api = {
   health: () => request<{ status: string }>('/health'),
-  logs: () => (USE_MOCK ? mock(mockLogs) : request<AuditRow[]>('/logs')),
-  review: () => (USE_MOCK ? mock(mockReview) : request<ReviewItem[]>('/review')),
-  outbox: () => (USE_MOCK ? mock(mockOutbox) : request<OutboxItem[]>('/outbox')),
-  // run, inject, decideReview, bench, policy, verifyLogs: added once the 11:00 contract is frozen
+  docs: () => (USE_MOCK ? mock(mockDocs) : request<string[]>('/docs')),
+  run: (req: RunRequest) =>
+    USE_MOCK ? mock(mockRun(req)) : request<RunResult>('/run', { method: 'POST', body: JSON.stringify(req) }),
+  logs: () => (USE_MOCK ? mock(mockLogs) : request<LogEntry[]>('/logs')),
 }
