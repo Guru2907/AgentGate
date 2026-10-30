@@ -1,10 +1,86 @@
-// All application data is served by the authenticated backend.
-import type { LogEntry, RunRequest, RunResult, TaskId, ToolCall } from '@/types'
+// All backend calls go through here. Vite proxies /api -> http://localhost:8000.
+// Live backend by default; start the dev server with VITE_USE_MOCK=true to use the offline prototype data.
+import type { LogEntry, RunRequest, RunResult, TaskId, ToolCall, Verdict } from '@/types'
+import { mockRun as prototypeMockRun } from '@/lib/mockGate'
+import { localTimestamp } from '@/lib/format'
+import { RUN_DOCUMENTS } from '@/mock/documents'
+
+export const USE_MOCK = import.meta.env.VITE_USE_MOCK === 'true'
 
 export type { LogEntry, RunRequest, RunResult, TaskId }
-export type Verdict = 'ALLOW' | 'BLOCK' | 'REVIEW'
 export type ToolName = 'summarise' | 'send_email' | 'read_file' | 'delete_file'
 export type Source = 'run' | 'inject' | 'review' | 'timeout'
+
+/** A review waiting for a human, as returned by GET /api/review. */
+export interface ApiReview {
+  id: number
+  audit_id: number
+  task: string
+  doc: string
+  call: ToolCall
+  call_hash: string
+  status: string
+  created_at: number // epoch seconds
+  expires_at: number // epoch seconds
+}
+
+export interface ApiOutboxItem {
+  id: number
+  ts: string
+  to: string
+  subject: string
+  attachment: string | null
+  audit_id: number
+}
+
+export interface ApiReviewResult {
+  id: number
+  decision: { verdict: Verdict; rules: string[]; reasons: string[] }
+  output: string
+  audit_id: number
+}
+
+export interface ApiChain {
+  ok: boolean
+  rows: number
+  broken_at?: number
+}
+
+export interface ApiBenchCase {
+  name: string
+  kind: 'clean' | 'hostile'
+  task: string
+  expected: Verdict
+  got: Verdict
+  rules: string[]
+  pass: boolean
+}
+
+export interface ApiBench {
+  total: number
+  attacks_blocked: number
+  attacks_passed: number
+  clean_allowed: number
+  false_alarms: number
+  per_case: ApiBenchCase[]
+}
+
+export interface ApiTaskPolicy {
+  allowed_tools?: string[]
+  recipients?: { allow_domains?: string[]; review_domains?: string[] }
+  files?: { scope?: string[] }
+}
+
+export interface ApiPolicy {
+  tasks: Record<string, ApiTaskPolicy>
+  global: {
+    deny_tools?: string[]
+    sensitive_files?: string[]
+    data_labels?: Record<string, string[]>
+    sensitive_patterns?: Record<string, string>
+    max_calls_per_run?: number
+  }
+}
 
 export type AuthUser = {
   id: number
@@ -27,123 +103,103 @@ export type AuthPayload = {
 }
 
 export class ApiError extends Error {
-  status: number
-  detail: string
-
-  constructor(status: number, detail: string) {
-    super(detail)
-    this.name = 'ApiError'
+  readonly status: number
+  readonly detail: string
+  constructor(status: number, message: string) {
+    super(message)
     this.status = status
-    this.detail = detail
+    this.detail = message
   }
 }
 
+// Session cookie is HttpOnly; the CSRF token from the session/login response goes on every write.
 let csrfToken: string | null = null
-
-export function getCsrfToken(): string | null {
-  return csrfToken
-}
 
 export function setCsrfToken(token: string | null) {
   csrfToken = token
 }
 
-async function readError(resp: Response): Promise<string> {
-  const messages: Record<number, string> = {
-    400: 'The request could not be processed.',
-    401: 'Your session has expired or the credentials are incorrect.',
-    403: 'You do not have permission to do that.',
-    404: 'The requested item could not be found.',
-    409: 'This request conflicts with your account state.',
-    422: 'Please check the submitted information.',
-    429: 'Too many requests. Please wait before trying again.',
-    500: 'Something went wrong. Please try again.',
-    502: 'The service is temporarily unavailable.',
-    503: 'The service is temporarily unavailable.',
-  }
-  if (resp.status === 401 && !resp.url.includes('/auth/login')) {
-    setCsrfToken(null)
-    window.dispatchEvent(new CustomEvent('agentgate:session-expired'))
-  }
-  return messages[resp.status] ?? 'The request could not be completed.'
-}
-
 async function request<T>(path: string, options: RequestInit = {}): Promise<T> {
   const headers = new Headers(options.headers)
-  if (!headers.has('Content-Type') && options.body != null) {
-    headers.set('Content-Type', 'application/json')
-  }
+  if (!headers.has('Content-Type') && options.body != null) headers.set('Content-Type', 'application/json')
   const method = (options.method ?? 'GET').toUpperCase()
-  if (method !== 'GET' && method !== 'HEAD' && csrfToken) {
-    headers.set('X-CSRF-Token', csrfToken)
-  }
+  if (method !== 'GET' && method !== 'HEAD' && csrfToken) headers.set('X-CSRF-Token', csrfToken)
 
-  const resp = await fetch(`/api${path}`, {
-    ...options,
-    headers,
-    credentials: 'include',
-  })
-  if (!resp.ok) throw new ApiError(resp.status, await readError(resp))
-  if (resp.status === 204) return undefined as T
+  const resp = await fetch(`/api${path}`, { ...options, headers, credentials: 'include' })
+  if (!resp.ok) {
+    if (resp.status === 401 && !path.startsWith('/auth/')) {
+      setCsrfToken(null)
+      window.dispatchEvent(new CustomEvent('agentgate:session-expired'))
+    }
+    const body = await resp.json().catch(() => null)
+    throw new ApiError(resp.status, body?.detail ? String(body.detail) : `${resp.status} ${resp.statusText}`)
+  }
   return resp.json() as Promise<T>
+}
+
+const post = <T,>(path: string, body?: unknown) =>
+  request<T>(path, { method: 'POST', body: body === undefined ? undefined : JSON.stringify(body) })
+
+const delay = <T,>(data: T) => new Promise<T>((resolve) => setTimeout(() => resolve(data), 300))
+
+const mockDocs = RUN_DOCUMENTS.map((d) => d.path)
+
+/** The backend logs clock time only ('16:42:15'); the UI expects a full local timestamp. */
+function withDate(ts: string): string {
+  return ts.length === 8 ? `${localTimestamp().slice(0, 10)}T${ts}` : ts
 }
 
 export const api = {
   health: () => request<{ status: string }>('/health'),
-  docs: () => request<string[]>('/docs'),
-  run: (req: RunRequest): Promise<RunResult> =>
-    request<RunResult>('/run', { method: 'POST', body: JSON.stringify(req) }),
-  inject: (req: { task: string; calls: ToolCall[] }): Promise<RunResult> =>
-    request<RunResult>('/inject', { method: 'POST', body: JSON.stringify(req) }),
-  logs: () => request<LogEntry[]>('/logs'),
-  verifyLogs: () => request<{ ok: boolean; rows: number; broken_at?: number }>('/logs/verify'),
-  reviews: () => request<BackendReview[]>('/review'),
-  outbox: () => request<BackendOutbox[]>('/outbox'),
-  bench: () => request<BenchResult>('/bench', { method: 'POST' }),
-  decideReview: (id: number, action: 'approve' | 'deny', call_hash?: string) =>
-    request<{ id: number; audit_id: number }>(`/review/${id}`, {
-      method: 'POST',
-      body: JSON.stringify({ action, call_hash }),
-    }),
+  docs: () => (USE_MOCK ? delay(mockDocs) : request<string[]>('/docs')),
+  run: async (req: RunRequest): Promise<RunResult> => {
+    if (USE_MOCK) {
+      const { result } = prototypeMockRun(req, { source: 'run' })
+      return delay(result)
+    }
+    return post<RunResult>('/run', req)
+  },
+  inject: (task: string, calls: unknown[]) => post<RunResult>('/inject', { task, calls }),
+  logs: async (): Promise<LogEntry[]> => {
+    if (USE_MOCK) return delay([])
+    const rows = await request<LogEntry[]>('/logs')
+    return rows.map((r) => ({ ...r, ts: withDate(r.ts) }))
+  },
+  verifyLogs: () => request<ApiChain>('/logs/verify'),
+  reviews: () => request<ApiReview[]>('/review'),
+  decideReview: (id: number, action: 'approve' | 'deny', callHash?: string) =>
+    post<ApiReviewResult>(`/review/${id}`, { action, call_hash: callHash ?? null }),
+  outbox: async () => (await request<ApiOutboxItem[]>('/outbox')).map((o) => ({ ...o, ts: withDate(o.ts) })),
+  policy: () => request<ApiPolicy>('/policy'),
+  bench: () => post<ApiBench>('/bench'),
 
   auth: {
-    config: () => request<{ password_reset_enabled: boolean }>('/auth/config'),
     session: async (): Promise<AuthSession> => {
       const session = await request<AuthSession>('/auth/session')
       setCsrfToken(session.csrf_token)
       return session
     },
     signup: async (body: { full_name: string; email: string; password: string }) => {
-      const result = await request<AuthPayload>('/auth/signup', {
-        method: 'POST',
-        body: JSON.stringify(body),
-      })
+      const result = await post<AuthPayload>('/auth/signup', body)
       setCsrfToken(result.csrf_token)
       return result
     },
     login: async (body: { email: string; password: string }) => {
-      const result = await request<AuthPayload>('/auth/login', {
-        method: 'POST',
-        body: JSON.stringify(body),
-      })
+      const result = await post<AuthPayload>('/auth/login', body)
       setCsrfToken(result.csrf_token)
       return result
     },
     logout: async () => {
       try {
-        await request<{ ok: boolean }>('/auth/logout', { method: 'POST' })
+        await post<{ ok: boolean }>('/auth/logout')
       } finally {
         setCsrfToken(null)
       }
     },
-    profile: () => request<AuthUser>('/auth/profile'),
     updateProfile: (body: { full_name: string }) =>
       request<AuthUser>('/auth/profile', { method: 'PATCH', body: JSON.stringify(body) }),
     changePassword: async (body: { current_password: string; new_password: string }) => {
-      const result = await request<{ ok: boolean; csrf_token: string }>('/auth/change-password', {
-        method: 'POST',
-        body: JSON.stringify(body),
-      })
+      const result = await post<{ ok: boolean; csrf_token: string }>('/auth/change-password', body)
       setCsrfToken(result.csrf_token)
       return result
     },
@@ -151,54 +207,8 @@ export const api = {
       await request<{ ok: boolean }>('/auth/account', { method: 'DELETE', body: JSON.stringify(body) })
       setCsrfToken(null)
     },
-    requestPasswordReset: (body: { email: string }) =>
-      request<{ message: string }>('/auth/password-reset', {
-        method: 'POST',
-        body: JSON.stringify(body),
-      }),
+    requestPasswordReset: (body: { email: string }) => post<{ message: string }>('/auth/password-reset', body),
     confirmPasswordReset: (body: { token: string; new_password: string }) =>
-      request<{ ok: boolean }>('/auth/password-reset/confirm', {
-        method: 'POST',
-        body: JSON.stringify(body),
-      }),
+      post<{ ok: boolean }>('/auth/password-reset/confirm', body),
   },
-}
-
-export interface BackendReview {
-  id: number
-  audit_id: number
-  task: string
-  doc: string
-  call: ToolCall
-  call_hash: string
-  created_at: number
-  expires_at: number
-}
-
-export interface BackendOutbox {
-  id: number
-  ts: string
-  to: string
-  subject: string
-  attachment: string | null
-  audit_id: number
-}
-
-export interface BenchCaseResult {
-  name: string
-  kind: 'hostile' | 'clean'
-  expected: Verdict
-  got: Verdict
-  rules: string[]
-  pass: boolean
-  trick?: string
-}
-
-export interface BenchResult {
-  total: number
-  attacks_blocked: number
-  attacks_passed: number
-  clean_allowed: number
-  false_alarms: number
-  per_case: BenchCaseResult[]
 }

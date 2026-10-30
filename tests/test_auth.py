@@ -151,7 +151,7 @@ def test_password_reset_endpoint_reports_missing_email_configuration(client):
     assert "not configured" in response.json()["detail"].lower()
 
 
-def test_account_deletion_requires_confirmation_and_removes_owned_data(client):
+def test_account_deletion_requires_confirmation_and_keeps_audit_log(client):
     workspace_id = client.get("/api/auth/session").json()["user"]["workspace_id"]
     invalid = client.request(
         "DELETE",
@@ -169,4 +169,6 @@ def test_account_deletion_requires_confirmation_and_removes_owned_data(client):
     assert deleted.status_code == 200
     assert client.get("/api/auth/session").json()["user"] is None
     with db._connect() as connection:
-        assert connection.execute("SELECT 1 FROM workspaces WHERE id = ?", (workspace_id,)).fetchone() is None
+        assert connection.execute("SELECT 1 FROM users WHERE workspace_id = ?", (workspace_id,)).fetchone() is None
+    # append-only: the workspace's audit trail survives and still verifies
+    assert db.verify_chain(workspace_id)["ok"] is True
