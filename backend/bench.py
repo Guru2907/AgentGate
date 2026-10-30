@@ -16,7 +16,7 @@ import yaml
 ROOT = Path(__file__).resolve().parents[1]
 DATA = ROOT / "data"
 DEFAULT_CASES_PATH = DATA / "bench_cases.yaml"
-DOC_PREFIXES = ("clean/", "hostile/", "generated/")
+DOC_PREFIXES = ("clean/", "hostile/", "generated/", "redteam_live/")
 DOC_TYPES = (".txt", ".pdf")
 
 
@@ -35,10 +35,10 @@ def load_cases(path: Path) -> list[dict]:
 
 
 def _resolve_doc(doc: str) -> Path:
-    """Allow clean/, hostile/, and generated/ only — no traversal."""
+    """Allow clean/, hostile/, generated/ and redteam_live/ only — no traversal."""
     doc = doc.replace("\\", "/").lstrip("./")
     if ".." in doc.split("/") or not any(doc.startswith(p) for p in DOC_PREFIXES):
-        raise ValueError(f"doc must be under clean/, hostile/, or generated/: {doc}")
+        raise ValueError(f"doc must be under clean/, hostile/, generated/ or redteam_live/: {doc}")
     path = (DATA / doc).resolve()
     if path.parent != (DATA / doc.split("/")[0]).resolve():
         raise ValueError(f"doc must be a file directly in its folder: {doc}")
