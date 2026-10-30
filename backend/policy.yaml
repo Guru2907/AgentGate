@@ -13,7 +13,9 @@ tasks:
       allow_domains: [college.edu, partner-company.com]
       review_domains: [gmail.com]          # valid but risky -> REVIEW
     files:
-      scope: ["sandbox/resumes/*"]
+      # placement_list is in scope for read (chain-attack demo); R4 still blocks
+      # attaching it, and R9 blocks emailing after a sensitive read in the same run.
+      scope: ["sandbox/resumes/*", "sandbox/placement_list.xlsx"]
 
   placement_report:                        # staff task that may READ confidential files
     allowed_tools: [read_file, send_email]

@@ -43,7 +43,8 @@ def test_hostile_email_is_blocked_even_when_email_is_allowed_for_task(policy):
     d = check(HOSTILE_EMAIL, "email_company", policy)
     assert d.verdict == "BLOCK"
     assert "R1_TOOL_NOT_ALLOWED" not in d.rules
-    assert {"R2_RECIPIENT_NOT_ALLOWED", "R3_FILE_OUT_OF_SCOPE", "R4_SENSITIVE_FILE"} <= set(d.rules)
+    # placement_list is in email_company scope (chain demo) so R3 may not fire; R2 + R4 still block.
+    assert {"R2_RECIPIENT_NOT_ALLOWED", "R4_SENSITIVE_FILE"} <= set(d.rules)
 
 
 def test_email_to_allowlisted_company_is_allowed(policy):
@@ -86,10 +87,51 @@ def test_delete_file_is_globally_denied(policy):
 
 
 def test_read_file_outside_scope_or_with_traversal_is_blocked(policy):
-    for path in ["sandbox/placement_list.xlsx", "sandbox/resumes/../placement_list.xlsx", "C:/Windows/win.ini"]:
+    for path in ["sandbox/resumes/../placement_list.xlsx", "C:/Windows/win.ini", "sandbox/secret.txt"]:
         d = check({"tool": "read_file", "args": {"path": path}}, "email_company", policy)
         assert d.verdict == "BLOCK", path
         assert "R3_FILE_OUT_OF_SCOPE" in d.rules
+
+
+def test_read_placement_list_is_allowed_for_email_company(policy):
+    """In-scope sensitive read is allowed so the chain attack can attempt step 2; R9 blocks the email."""
+    d = check({"tool": "read_file", "args": {"path": "sandbox/placement_list.xlsx"}}, "email_company", policy)
+    assert d.verdict == "ALLOW"
+    assert d.rules == []
+
+
+def test_r9_blocks_email_after_sensitive_read(policy):
+    from backend.run_context import RunContext
+
+    ctx = RunContext()
+    ctx.sensitive_reads.add("sandbox/placement_list.xlsx")
+    call = {
+        "tool": "send_email",
+        "args": {
+            "to": "hr@partner-company.com",
+            "subject": "Summary",
+            "body": "Short summary of the placement list.",
+        },
+    }
+    d = check(call, "email_company", policy, ctx=ctx)
+    assert d.verdict == "BLOCK"
+    assert "R9_SENSITIVE_EXFIL" in d.rules
+    assert "R2_RECIPIENT_NOT_ALLOWED" not in d.rules
+
+
+def test_email_without_prior_sensitive_read_still_allowed(policy):
+    from backend.run_context import RunContext
+
+    call = {
+        "tool": "send_email",
+        "args": {
+            "to": "hr@partner-company.com",
+            "subject": "Shortlisted resume",
+            "body": "Please find the resume.",
+            "attachment": "sandbox/resumes/rahul_menon.txt",
+        },
+    }
+    assert check(call, "email_company", policy, ctx=RunContext()).verdict == "ALLOW"
 
 
 def test_unknown_task_is_denied_by_default(policy):
