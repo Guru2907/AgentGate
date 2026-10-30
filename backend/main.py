@@ -15,15 +15,8 @@ from dotenv import load_dotenv
 from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 
-from fnmatch import fnmatchcase
-
 from backend import db, gate, tools
-<<<<<<< Updated upstream
 from backend.schemas import Decision, InjectRequest, LogEntry, ReviewDecision, RunRequest, RunResult, ToolCall
-=======
-from backend.run_context import RunContext
-from backend.schemas import LogEntry, RunRequest, RunResult, ToolCall
->>>>>>> Stashed changes
 
 load_dotenv()
 log = logging.getLogger("agentgate")
@@ -33,12 +26,9 @@ DATA = ROOT / "data"
 DOC_FOLDERS = ("clean", "hostile")
 DOC_TYPES = (".txt", ".pdf")
 NOT_EXECUTED = "(not executed)"
-<<<<<<< Updated upstream
 INJECT_DOC = "(injected)"
-=======
 # AGENT_STEPS=1 (default): one-shot propose, demo-safe. AGENT_STEPS=3: multi-step loop (issue #8).
 DEFAULT_AGENT_STEPS = 1
->>>>>>> Stashed changes
 
 POLICY = gate.load_policy()
 
@@ -49,12 +39,6 @@ def _agent_steps() -> int:
         return max(1, min(int(raw), int(POLICY.get("global", {}).get("max_calls_per_run", 3))))
     except ValueError:
         return DEFAULT_AGENT_STEPS
-
-
-def _is_sensitive_path(path: str) -> bool:
-    patterns = POLICY.get("global", {}).get("sensitive_files", [])
-    norm = path.replace("\\", "/").removeprefix("./").strip().lower()
-    return any(fnmatchcase(norm, p.lower()) for p in patterns)
 
 
 @asynccontextmanager
@@ -191,9 +175,30 @@ def list_docs() -> list[str]:
     )
 
 
-<<<<<<< Updated upstream
 def _review_timeout_min() -> float:
     return float(os.getenv("REVIEW_TIMEOUT_MIN", "10"))
+
+
+def _process_one(task: str, doc: str, raw, source: str, ctx: gate.RunContext) -> tuple:
+    """Gate one proposed call, maybe execute it, log it, update RunContext."""
+    record = _as_record(raw)
+    decision = gate.check(raw, task, POLICY, ctx)
+    executed = False
+    output = NOT_EXECUTED
+    if decision.verdict == "ALLOW":  # the ONLY path to a tool
+        try:
+            output = tools.execute(record)
+            executed = True
+        except Exception as exc:
+            output = f"Tool error: {exc}"
+    audit_id = db.save(task, doc, record, decision, executed, source)
+    if executed and isinstance(record, ToolCall) and record.tool == "send_email":
+        db.add_outbox(record, audit_id)
+    if decision.verdict == "REVIEW":
+        review_id = db.add_review(audit_id, task, doc, record, _review_timeout_min())
+        output = f"(waiting for human review #{review_id})"
+    ctx.record(record, decision, output, POLICY)
+    return record, decision, output
 
 
 def _process(task: str, doc: str, raw_calls: list, source: str) -> RunResult:
@@ -201,68 +206,25 @@ def _process(task: str, doc: str, raw_calls: list, source: str) -> RunResult:
     ctx = gate.RunContext()
     proposed, decisions, outputs = [], [], []
     for raw in raw_calls:
-        record = _as_record(raw)
-        decision = gate.check(raw, task, POLICY, ctx)
-        executed = False
-        output = NOT_EXECUTED
-        if decision.verdict == "ALLOW":  # the ONLY path to a tool
-            try:
-                output = tools.execute(record)
-                executed = True
-            except Exception as exc:
-                output = f"Tool error: {exc}"
-        audit_id = db.save(task, doc, record, decision, executed, source)
-        if executed and record.tool == "send_email":
-            db.add_outbox(record, audit_id)
-        if decision.verdict == "REVIEW":
-            review_id = db.add_review(audit_id, task, doc, record, _review_timeout_min())
-            output = f"(waiting for human review #{review_id})"
-        ctx.record(record, decision, output, POLICY)
-=======
-def _run_one_call(req: RunRequest, raw, ctx: RunContext) -> tuple:
-    """Gate one proposed call, maybe execute it, log it, update RunContext. Returns (record, decision, output)."""
-    record = _as_record(raw)
-    decision = gate.check(raw, req.task, POLICY, ctx=ctx)
-    executed = False
-    output = NOT_EXECUTED
-    if decision.verdict == "ALLOW":  # the ONLY path to a tool
-        try:
-            if isinstance(record, ToolCall):
-                output = tools.execute(record)
-            else:
-                output = "Tool error: malformed call"
-            executed = True
-        except Exception as exc:
-            output = f"Tool error: {exc}"
-            executed = False
-    call_dict = {"tool": record.tool, "args": record.args} if isinstance(record, ToolCall) else (record if isinstance(record, dict) else {})
-    sensitive = (
-        isinstance(record, ToolCall)
-        and record.tool == "read_file"
-        and _is_sensitive_path(str(record.args.get("path", "")))
-    )
-    ctx.record(call_dict, decision.verdict, output, sensitive=sensitive and executed)
-    db.save(req.task, req.doc, record, decision, executed)
-    return record, decision, output
+        record, decision, output = _process_one(task, doc, raw, source, ctx)
+        proposed.append(record)
+        decisions.append(decision)
+        outputs.append(output)
+    return RunResult(proposed=proposed, decisions=decisions, outputs=outputs)
 
 
 @app.post("/api/run")
 def run_task(req: RunRequest) -> RunResult:
     text = _read_doc(_resolve_doc(req.doc))
-    proposed, decisions, outputs = [], [], []
-    ctx = RunContext()
     steps = _agent_steps()
 
     if steps == 1:
         # Demo-safe default: one-shot propose (same shape as before issue #8).
-        for raw in _propose(req.task, text, req.doc):
-            record, decision, output = _run_one_call(req, raw, ctx)
-            proposed.append(record)
-            decisions.append(decision)
-            outputs.append(output)
-        return RunResult(proposed=proposed, decisions=decisions, outputs=outputs)
+        return _process(req.task, req.doc, _propose(req.task, text, req.doc), "run")
 
     # Multi-step: agent sees prior outputs; stop when it proposes nothing or hits the step cap.
+    ctx = gate.RunContext()
+    proposed, decisions, outputs = [], [], []
     history: list[dict] = []
     for _ in range(steps):
         batch = _propose(req.task, text, req.doc, history)
@@ -270,25 +232,18 @@ def run_task(req: RunRequest) -> RunResult:
             break
         # One tool call per step keeps the chain readable (read → email).
         raw = batch[0]
-        record, decision, output = _run_one_call(req, raw, ctx)
->>>>>>> Stashed changes
+        record, decision, output = _process_one(req.task, req.doc, raw, "run", ctx)
         proposed.append(record)
         decisions.append(decision)
         outputs.append(output)
-        call_dict = {"tool": record.tool, "args": record.args} if isinstance(record, ToolCall) else (raw if isinstance(raw, dict) else {})
+        call_dict = (
+            {"tool": record.tool, "args": record.args}
+            if isinstance(record, ToolCall)
+            else (raw if isinstance(raw, dict) else {})
+        )
         history.append({"call": call_dict, "output": output, "verdict": decision.verdict})
-        if decision.verdict == "BLOCK":
-            # Still allow a follow-up proposal on REVIEW/ALLOW only; on BLOCK the chain usually ends
-            # after one more empty next_step — but keep looping so replays can record a stop.
-            pass
 
     return RunResult(proposed=proposed, decisions=decisions, outputs=outputs)
-
-
-@app.post("/api/run")
-def run_task(req: RunRequest) -> RunResult:
-    text = _read_doc(_resolve_doc(req.doc))
-    return _process(req.task, req.doc, _propose(req.task, text, req.doc), "run")
 
 
 @app.post("/api/inject")

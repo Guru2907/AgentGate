@@ -86,7 +86,7 @@ def test_chain_doc_read_then_email_blocked_with_r9(client, monkeypatch):
     assert body["decisions"][0]["verdict"] == "ALLOW"
     assert body["outputs"][0].startswith("[spreadsheet") or "placement_list" in body["outputs"][0]
     assert body["decisions"][1]["verdict"] == "BLOCK"
-    assert "R9_SENSITIVE_EXFIL" in body["decisions"][1]["rules"]
+    assert "R9_TAINTED_EGRESS" in body["decisions"][1]["rules"]
     assert body["outputs"][1] == "(not executed)"
 
 

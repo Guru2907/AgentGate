@@ -136,16 +136,7 @@ def _paths(call: ToolCall) -> list[str]:
 
 
 def _check_files(call: ToolCall, task_cfg: dict, policy: dict) -> list[Hit]:
-<<<<<<< Updated upstream
     """R3 file outside the task's scope, R4 sensitive file attached or deleted (global list, every task)."""
-=======
-    """R3 file outside the task's scope, R4 sensitive file (global list, every task).
-
-    R4 applies to email attachments and deletes. A plain read_file of a sensitive path
-    is allowed when in scope so the multi-step chain can attempt exfiltration; R9 then
-    blocks the follow-up email (see _check_chain).
-    """
->>>>>>> Stashed changes
     scope = task_cfg.get("files", {}).get("scope", [])
     sensitive = policy.get("global", {}).get("sensitive_files", [])
     hits: list[Hit] = []
@@ -153,16 +144,11 @@ def _check_files(call: ToolCall, task_cfg: dict, policy: dict) -> list[Hit]:
         path = _norm_path(raw)
         if ".." in path.split("/") or not _matches(path, scope):
             hits.append(("block", "R3_FILE_OUT_OF_SCOPE", f"{raw} is outside the allowed files for this task"))
-<<<<<<< Updated upstream
         if call.tool != "read_file" and _matches(path, sensitive):  # reading is governed by scope (R3)
-=======
-        if call.tool != "read_file" and _matches(path, sensitive):
->>>>>>> Stashed changes
             hits.append(("block", "R4_SENSITIVE_FILE", f"{raw} is tagged sensitive"))
     return hits
 
 
-<<<<<<< Updated upstream
 def _email_text(call: ToolCall) -> str:
     return "\n".join(str(call.args.get(k) or "") for k in ("subject", "body"))
 
@@ -265,23 +251,6 @@ def _check_budget(ctx: RunContext | None, policy: dict) -> list[Hit]:
     if ctx is None or limit is None or ctx.calls < limit:
         return []
     return [("block", "R7_TOO_MANY_CALLS", f"this run already proposed {ctx.calls} calls (limit {limit})")]
-=======
-def _check_chain(call: ToolCall, ctx) -> list[Hit]:
-    """R9: block send_email after this run already read a sensitive file (chain / exfil)."""
-    if ctx is None or call.tool != "send_email":
-        return []
-    reads = getattr(ctx, "sensitive_reads", None) or set()
-    if not reads:
-        return []
-    shown = ", ".join(sorted(reads))
-    return [
-        (
-            "block",
-            "R9_SENSITIVE_EXFIL",
-            f"email follows a read of sensitive data in this run ({shown})",
-        )
-    ]
->>>>>>> Stashed changes
 
 
 def _decide(hits: list[Hit]) -> Decision:
@@ -290,18 +259,11 @@ def _decide(hits: list[Hit]) -> Decision:
     return Decision(verdict=verdict, rules=[r for _, r, _ in hits], reasons=[m for _, _, m in hits])
 
 
-<<<<<<< Updated upstream
 def check(call: ToolCall | dict, task: str, policy: dict, ctx: RunContext | None = None) -> Decision:
     """Decide one proposed tool call. Accepts raw agent output; anything malformed is blocked.
 
     Pass the same RunContext for every call in a run (and call ctx.record afterwards) to enable the
     sequence rules: R7 budget, R9 tainted egress, R10 split/encoded exfiltration.
-=======
-def check(call: ToolCall | dict, task: str, policy: dict, ctx=None) -> Decision:
-    """Decide one proposed tool call. Accepts raw agent output; anything malformed is blocked.
-
-    ctx is an optional RunContext from a multi-step run (R9). One-shot callers can omit it.
->>>>>>> Stashed changes
     """
     if not isinstance(call, ToolCall):
         try:
@@ -316,12 +278,8 @@ def check(call: ToolCall | dict, task: str, policy: dict, ctx=None) -> Decision:
         + _check_tool(call, task, task_cfg, policy)
         + _check_recipient(call, cfg)
         + _check_files(call, cfg, policy)
-<<<<<<< Updated upstream
         + _check_content(call, policy, ctx)
         + _check_taint(call, cfg, ctx)
         + _check_budget(ctx, policy)
-=======
-        + _check_chain(call, ctx)
->>>>>>> Stashed changes
     )
     return _decide(hits)
