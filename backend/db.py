@@ -10,7 +10,9 @@ import json
 import os
 import sqlite3
 import time
-from contextlib import closing
+from collections.abc import Iterator
+from contextlib import closing, contextmanager
+from contextvars import ContextVar
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
@@ -97,8 +99,24 @@ CREATE TABLE IF NOT EXISTS outbox (
 """
 
 
+# Per-request DB override (the bench scores on a scratch DB). A ContextVar, not os.environ, so other
+# requests running at the same time keep using the real DB — and keep their sessions.
+_DB_OVERRIDE: ContextVar[Path | None] = ContextVar("agentgate_db_override", default=None)
+
+
 def _db_path() -> Path:
-    return ROOT / os.getenv("DB_PATH", "agentgate.db")
+    return _DB_OVERRIDE.get() or ROOT / os.getenv("DB_PATH", "agentgate.db")
+
+
+@contextmanager
+def using_db(path: Path) -> Iterator[None]:
+    """Point this request's DB calls at `path` (created if needed); the rest of the app is unaffected."""
+    token = _DB_OVERRIDE.set(path)
+    try:
+        init_db()
+        yield
+    finally:
+        _DB_OVERRIDE.reset(token)
 
 
 def _connect() -> sqlite3.Connection:
