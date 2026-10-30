@@ -13,6 +13,7 @@ CLEAN = {"task": "summarise_resume", "doc": "clean/resume_01_asha.txt"}
 def client(tmp_path, monkeypatch):
     monkeypatch.setenv("DB_PATH", str(tmp_path / "test.db"))
     monkeypatch.setenv("AGENT", "fake")
+    monkeypatch.setenv("AGENT_STEPS", "1")  # one-shot by default, whatever a local .env says
     with TestClient(app) as c:
         c.headers.update({"Origin": "http://localhost:5173"})
         registered = c.post(
