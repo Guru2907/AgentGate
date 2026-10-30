@@ -66,7 +66,7 @@ export function HowItWorks({ onTryDemo }: { onTryDemo: () => void }) {
           Try the demo
           <ArrowRight aria-hidden />
         </Button>
-        <p className="text-muted-foreground text-xs">Replay mode. No real email is sent.</p>
+        <p className="text-muted-foreground text-xs">Every tool is sandboxed. No real email is ever sent.</p>
       </div>
     </section>
   )
