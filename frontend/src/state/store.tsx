@@ -261,6 +261,11 @@ export function StoreProvider({ children }: { children: ReactNode }) {
             type: 'UPDATE_RUN_SESSION',
             patch: { phase: { kind: 'done', outcome: { request, result, extras, source, logId, outboxHadItems } } },
           })
+          const verdict = result.decisions[0]?.verdict
+          const tool = result.proposed[0]?.tool ?? 'action'
+          if (verdict === 'ALLOW') toast.success(`Allowed: ${tool} ran in the sandbox.`, { description: `Logged as #${logId}` })
+          else if (verdict === 'BLOCK') toast.error(`Blocked: ${tool} was stopped by the gate.`, { description: `Logged as #${logId}` })
+          else if (verdict === 'REVIEW') toast.warning(`Needs review: ${tool} is waiting for a human.`, { description: `Logged as #${logId}` })
         }, useLive ? 400 : RUN_LOADING_MS)
       }
 

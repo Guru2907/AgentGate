@@ -1,6 +1,6 @@
-import { useRef, useState, type ChangeEvent, type ReactNode } from 'react'
+import { useEffect, useRef, useState, type ChangeEvent, type CSSProperties, type ReactNode } from 'react'
 import { toast } from 'sonner'
-import { FileLock, Play, ShieldCheck, Syringe, TriangleAlert, Upload, UserCheck } from 'lucide-react'
+import { FileLock, Play, RotateCcw, ScrollText, ShieldCheck, Syringe, TriangleAlert, Upload, UserCheck } from 'lucide-react'
 
 import type { RunResult, TaskId } from '@/types'
 import { Alert, AlertDescription } from '@/components/ui/alert'
@@ -11,6 +11,7 @@ import { Label } from '@/components/ui/label'
 import { RadioGroup, RadioGroupItem } from '@/components/ui/radio-group'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
 import { Separator } from '@/components/ui/separator'
+import { Skeleton } from '@/components/ui/skeleton'
 import { DocTypeBadge } from '@/components/DocTypeBadge'
 import { CornerMarks } from '@/components/CornerMarks'
 import { IdleArtwork } from '@/components/IdleArtwork'
@@ -22,21 +23,54 @@ import { RulesSheet } from '@/components/RulesSheet'
 import { ToolCallBlock } from '@/components/ToolCallBlock'
 import { VerdictBadge } from '@/components/VerdictBadge'
 import { docName, TASK_LABELS } from '@/lib/format'
+import { prefersReducedMotion } from '@/lib/usePrefersReducedMotion'
 import { cn } from '@/lib/utils'
 import { uploadedDocument } from '@/mock/documents'
 import { RULE_TITLES } from '@/mock/rules'
 import { useStore, type RunOutcomeData } from '@/state/store'
 
-export function RunTask({ onOpenReviewQueue }: { onOpenReviewQueue: () => void }) {
+/** Below the xl breakpoint the result panel sits under the input card; bring it into view. */
+function scrollResultIntoView(el: HTMLElement | null) {
+  if (!el || !window.matchMedia('(max-width: 79.99rem)').matches) return
+  window.setTimeout(() => {
+    el.scrollIntoView({ behavior: prefersReducedMotion() ? 'auto' : 'smooth', block: 'start' })
+  }, 50)
+}
+
+interface RunTaskProps {
+  onOpenReviewQueue: () => void
+  onOpenLog: (logId: number) => void
+}
+
+export function RunTask({ onOpenReviewQueue, onOpenLog }: RunTaskProps) {
   const { state, updateRunSession, startRun } = useStore()
   const { task, documents, selected, phase } = state.runSession
   const [rulesOpen, setRulesOpen] = useState(false)
   const fileInput = useRef<HTMLInputElement>(null)
+  const resultRef = useRef<HTMLElement>(null)
 
   const busy = phase.kind === 'loading'
   const setTask = (t: TaskId) => updateRunSession({ task: t })
   const setSelected = (name: string) => updateRunSession({ selected: name })
-  const start = startRun
+
+  function start(source: 'run' | 'inject') {
+    startRun(source)
+    scrollResultIntoView(resultRef.current)
+  }
+
+  // Keyboard: Ctrl/Cmd+Enter runs the task from anywhere on the page.
+  useEffect(() => {
+    if (busy) return
+    const onKey = (e: KeyboardEvent) => {
+      if ((e.ctrlKey || e.metaKey) && e.key === 'Enter') {
+        e.preventDefault()
+        startRun('run')
+        scrollResultIntoView(resultRef.current)
+      }
+    }
+    window.addEventListener('keydown', onKey)
+    return () => window.removeEventListener('keydown', onKey)
+  }, [busy, startRun])
 
   function onFileChosen(e: ChangeEvent<HTMLInputElement>) {
     const file = e.target.files?.[0]
@@ -108,8 +142,9 @@ export function RunTask({ onOpenReviewQueue }: { onOpenReviewQueue: () => void }
                 Upload document
               </Button>
               <Button className="w-full" size="lg" onClick={() => start('run')} disabled={busy}>
-                <Play aria-hidden />
+                {busy ? <RotateCcw aria-hidden className="animate-spin motion-reduce:animate-none" /> : <Play aria-hidden />}
                 {busy ? 'Running…' : 'Run'}
+                {!busy && <kbd className="bg-primary-foreground/15 ml-1 hidden rounded px-1.5 py-0.5 font-mono text-2xs font-medium sm:inline">Ctrl ↵</kbd>}
               </Button>
               <Button variant="link" className="h-auto self-start px-0" onClick={() => setRulesOpen(true)}>
                 <FileLock aria-hidden />
@@ -133,7 +168,7 @@ export function RunTask({ onOpenReviewQueue }: { onOpenReviewQueue: () => void }
         </Card>
 
         {/* ------------------------------ Result ----------------------------- */}
-        <section aria-label="Result" aria-live="polite" className="flex min-w-0 flex-col gap-4">
+        <section ref={resultRef} aria-label="Result" aria-live="polite" className="flex min-w-0 scroll-mt-20 flex-col gap-4">
           {phase.kind === 'idle' && (
             <IdleArtwork message="Choose a document and press Run to see what the AI tries to do." />
           )}
@@ -146,10 +181,11 @@ export function RunTask({ onOpenReviewQueue }: { onOpenReviewQueue: () => void }
               <p className="text-muted-foreground text-sm">
                 {phase.source === 'inject' ? 'Sending the injected call to the gate…' : 'The AI is reading the document and proposing an action…'}
               </p>
+              <LoadingOutcome />
             </>
           )}
 
-          {phase.kind === 'done' && <RunOutcome outcome={phase.outcome} onOpenReviewQueue={onOpenReviewQueue} />}
+          {phase.kind === 'done' && <RunOutcome outcome={phase.outcome} onOpenReviewQueue={onOpenReviewQueue} onOpenLog={onOpenLog} />}
         </section>
       </div>
 
@@ -172,7 +208,36 @@ function Eyebrow({ children }: { children: ReactNode }) {
   return <span className="eyebrow">{children}</span>
 }
 
-function RunOutcome({ outcome, onOpenReviewQueue }: { outcome: RunOutcomeData; onOpenReviewQueue: () => void }) {
+/** Placeholder cards shaped like the result, so the layout doesn't jump when the verdict lands. */
+function LoadingOutcome() {
+  return (
+    <div aria-hidden className="flex flex-col gap-4">
+      <Card className="gap-3 py-4">
+        <CardContent className="flex flex-col gap-3 px-4">
+          <Skeleton className="h-3 w-28" />
+          <Skeleton className="h-20 w-full" />
+        </CardContent>
+      </Card>
+      <Card className="gap-3 py-4">
+        <CardContent className="flex flex-col gap-3 px-4">
+          <Skeleton className="h-3 w-24" />
+          <div className="flex items-center gap-3">
+            <Skeleton className="h-8 w-32 rounded-md" />
+            <Skeleton className="h-3 w-48" />
+          </div>
+        </CardContent>
+      </Card>
+    </div>
+  )
+}
+
+interface RunOutcomeProps {
+  outcome: RunOutcomeData
+  onOpenReviewQueue: () => void
+  onOpenLog: (logId: number) => void
+}
+
+function RunOutcome({ outcome, onOpenReviewQueue, onOpenLog }: RunOutcomeProps) {
   const { request, result, extras, source, logId, outboxHadItems } = outcome
   const call = result.proposed[0]
   const decision = result.decisions[0]
@@ -194,7 +259,7 @@ function RunOutcome({ outcome, onOpenReviewQueue }: { outcome: RunOutcomeData; o
       </PipelineCard>
 
       {extras.hiddenText && (
-        <Card className="gap-2 py-3">
+        <Card className="ag-fade-up gap-2 py-3" style={{ '--ag-i': 1 } as CSSProperties}>
           <CardHeader className="px-4">
             <CardTitle>Hidden text found in document</CardTitle>
           </CardHeader>
@@ -210,14 +275,14 @@ function RunOutcome({ outcome, onOpenReviewQueue }: { outcome: RunOutcomeData; o
       )}
 
       <div className={cn('grid grid-cols-1 gap-4', extras.egress && 'xl:grid-cols-[minmax(0,1fr)_minmax(0,19rem)]')}>
-        <Card className="gap-3 py-4">
+        <Card className="ag-fade-up gap-3 py-4" style={{ '--ag-i': 2 } as CSSProperties}>
           <CardContent className="flex flex-col gap-3 px-4">
             <Eyebrow>Proposed tool call</Eyebrow>
             <ToolCallBlock call={call} />
           </CardContent>
         </Card>
         {extras.egress && (
-          <Card className="gap-1 py-4">
+          <Card className="ag-fade-up gap-1 py-4" style={{ '--ag-i': 3 } as CSSProperties}>
             <CardContent className="flex flex-col gap-1 px-4">
               <Eyebrow>Egress preview: what would leave</Eyebrow>
               <EgressPreview egress={extras.egress} />
@@ -226,7 +291,7 @@ function RunOutcome({ outcome, onOpenReviewQueue }: { outcome: RunOutcomeData; o
         )}
       </div>
 
-      <Card className="ag-slide-in gap-3 py-4">
+      <Card className="ag-fade-up gap-3 py-4" style={{ '--ag-i': 4 } as CSSProperties}>
         <CornerMarks marks={[{ corner: 'tr', tone: 'violet' }]} />
         <CardContent className="flex flex-col gap-3 px-4">
           <Eyebrow>Gate decision</Eyebrow>
@@ -246,16 +311,22 @@ function RunOutcome({ outcome, onOpenReviewQueue }: { outcome: RunOutcomeData; o
         </CardContent>
       </Card>
 
-      <Alert>
+      <Alert className="ag-fade-up" style={{ '--ag-i': 5 } as CSSProperties}>
         <ShieldCheck aria-hidden />
         <AlertDescription className="flex flex-wrap items-center justify-between gap-3">
           <span>{alertText(verdict, logId, outboxHadItems)}</span>
-          {verdict === 'REVIEW' && (
-            <Button size="sm" variant="outline" onClick={onOpenReviewQueue}>
-              <UserCheck aria-hidden />
-              Open Review Queue
+          <span className="flex flex-wrap items-center gap-2">
+            <Button size="sm" variant="outline" onClick={() => onOpenLog(logId)}>
+              <ScrollText aria-hidden />
+              Open #{logId} in Gate Log
             </Button>
-          )}
+            {verdict === 'REVIEW' && (
+              <Button size="sm" onClick={onOpenReviewQueue}>
+                <UserCheck aria-hidden />
+                Open Review Queue
+              </Button>
+            )}
+          </span>
         </AlertDescription>
       </Alert>
     </div>

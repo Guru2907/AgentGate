@@ -63,18 +63,19 @@ export function PipelineStrip({ phase, verdict, injected = false, docLabel, tool
   ]
 
   return (
-    <ol aria-label="Pipeline" aria-busy={loading} className="flex items-stretch gap-2">
+    // Phones: 2x2 grid without arrows. Wider: one row with arrows between steps.
+    <ol aria-label="Pipeline" aria-busy={loading} className="grid grid-cols-2 gap-2 sm:flex sm:items-stretch">
       {steps.map((step, i) => (
         <Fragment key={step.label}>
           {i > 0 && (
-            <li aria-hidden className="text-muted-foreground flex items-center">
+            <li aria-hidden className="text-muted-foreground hidden items-center sm:flex">
               <ArrowRight className="size-4" />
             </li>
           )}
           <li
             data-step={i}
             className={cn(
-              'flex min-w-0 flex-1 flex-col gap-1 rounded-2xl border px-4 py-2 transition-colors',
+              'flex min-w-0 flex-col gap-1 rounded-2xl border px-3 py-2 transition-colors sm:flex-1 sm:px-4',
               STATE_CLASSES[step.state],
               step.label === 'Gate' && 'glow-gate',
             )}

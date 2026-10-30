@@ -5,7 +5,7 @@ import { HowItWorks } from '@/pages/Landing/HowItWorks'
 export function Home({ onTryDemo }: { onTryDemo: () => void }) {
   return (
     <>
-      <Hero />
+      <Hero onTryDemo={onTryDemo} />
       <HowItWorks onTryDemo={onTryDemo} />
       <SiteFooter />
     </>
