@@ -18,6 +18,10 @@ dist/
 # Editors / OS
 .vscode/
 .idea/
+.cursor/
+.windsurf/
+.claude/
+*.code-workspace
 .DS_Store
 Thumbs.db
 
