@@ -1,0 +1,11 @@
+{
+  "title": "AgentGate",
+  "description": "A security dashboard for AI agent teams to inspect proposed actions, enforce deterministic rules, review risky requests, and audit every decision.",
+  "robots": {
+    "index": false
+  },
+  "accessibility": {
+    "addBypassLinks": false,
+    "ignoreReducedMotion": false
+  }
+}
