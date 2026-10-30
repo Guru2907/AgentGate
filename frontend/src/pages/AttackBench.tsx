@@ -1,9 +1,9 @@
 import { useEffect, useRef, useState } from 'react'
 import { toast } from 'sonner'
-import { CircleCheck, RotateCcw, ShieldCheck, ShieldX, Swords, TriangleAlert, Zap } from 'lucide-react'
+import { Bot, CircleCheck, RefreshCw, RotateCcw, ShieldCheck, ShieldX, Swords, TriangleAlert, Zap } from 'lucide-react'
 
 import type { RunResult, Verdict } from '@/types'
-import { api, ApiError, USE_MOCK, type ApiBench } from '@/api'
+import { api, ApiError, USE_MOCK, type ApiBench, type ApiRedTeam } from '@/api'
 import { Button } from '@/components/ui/button'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Progress } from '@/components/ui/progress'
@@ -53,6 +53,10 @@ export function AttackBench() {
             <Zap aria-hidden />
             Bench
           </TabsTrigger>
+          <TabsTrigger value="redteam">
+            <Bot aria-hidden />
+            Red team
+          </TabsTrigger>
           <TabsTrigger value="attack">
             <Swords aria-hidden />
             Try an attack
@@ -60,6 +64,9 @@ export function AttackBench() {
         </TabsList>
         <TabsContent value="bench">
           <BenchPanel />
+        </TabsContent>
+        <TabsContent value="redteam">
+          <RedTeamPanel />
         </TabsContent>
         <TabsContent value="attack">
           <AttackPanel />
@@ -220,6 +227,156 @@ function BenchPanel() {
                 ))}
               </TableBody>
               <TableCaption className="mb-2">{result.total} cases</TableCaption>
+            </Table>
+          )}
+        </CardContent>
+      </Card>
+    </div>
+  )
+}
+
+// ------------------------------------------------------------- Red team ---
+
+type RedTeamState =
+  | { kind: 'idle' }
+  | { kind: 'running'; label: string }
+  | { kind: 'done'; result: ApiRedTeam; at: string }
+  | { kind: 'error'; message: string }
+
+function RedTeamPanel() {
+  const [state, setState] = useState<RedTeamState>({ kind: 'idle' })
+
+  async function run(label: string, body: { n?: number; score_only?: boolean }) {
+    setState({ kind: 'running', label })
+    try {
+      const result = await api.redteam(body)
+      setState({ kind: 'done', result, at: formatClock() })
+      toast.success(result.summary_line)
+    } catch (err) {
+      setState({ kind: 'error', message: err instanceof Error ? err.message : 'Red team failed' })
+    }
+  }
+
+  const generate = () => run('Inventing and scoring 10 new attacks…', { n: 10 })
+  const rescore = () => run('Re-scoring the saved attack batch…', { score_only: true })
+  const running = state.kind === 'running'
+  const result = state.kind === 'done' ? state.result : null
+  const attacks = result ? result.attacks_blocked + result.attacks_passed : 0
+  const rules = result ? Object.entries(result.rules_hit).sort((a, b) => b[1] - a[1]) : []
+  const maxHits = rules[0]?.[1] ?? 1
+
+  return (
+    <div className="flex flex-col gap-6">
+      <div className="flex flex-wrap items-center justify-between gap-3">
+        <p className="text-muted-foreground max-w-xl text-sm">
+          An attacker AI invents new hostile resumes, each hiding a different trick. Every one goes through the same gate. Without a
+          Groq key it uses built-in attack templates.
+        </p>
+        <div className="flex flex-wrap gap-2">
+          <Button variant="outline" onClick={rescore} disabled={running}>
+            <RefreshCw aria-hidden />
+            Re-score saved batch
+          </Button>
+          <Button onClick={generate} disabled={running}>
+            {running ? <RotateCcw aria-hidden className="animate-spin motion-reduce:animate-none" /> : <Bot aria-hidden />}
+            {running ? 'Running…' : 'Generate & score'}
+          </Button>
+        </div>
+      </div>
+
+      <div className={cn('grid grid-cols-2 gap-3 transition-opacity sm:gap-6 xl:grid-cols-4', !result && 'opacity-60')}>
+        <StatCard icon={Bot} tone="review" value={result ? attacks : '—'} label="Attacks invented" />
+        <StatCard icon={ShieldCheck} tone="allowed" value={result ? `${result.attacks_blocked} / ${attacks}` : '—'} label="Stopped by the gate" />
+        <StatCard icon={ShieldX} tone="blocked" value={result ? result.attacks_passed : '—'} label="Got through" />
+        <StatCard icon={TriangleAlert} tone="review" value={result ? rules.length : '—'} label="Different rules used" />
+      </div>
+
+      {result && (
+        <Card className="gap-3 py-4">
+          <CardContent className="flex flex-col gap-3 px-4">
+            <p className="text-sm font-medium">{result.summary_line}</p>
+            <ul className="flex flex-col gap-1.5">
+              {rules.map(([rule, hits]) => (
+                <li key={rule} className="grid grid-cols-[minmax(0,14rem)_minmax(0,1fr)_2rem] items-center gap-3 text-xs">
+                  <span className="truncate font-mono" title={rule}>
+                    {rule}
+                  </span>
+                  <span className="bg-muted h-2 overflow-hidden rounded-full">
+                    <span className="bg-primary block h-full rounded-full" style={{ width: `${(hits / maxHits) * 100}%` }} />
+                  </span>
+                  <span className="text-right tabular-nums">{hits}</span>
+                </li>
+              ))}
+            </ul>
+            <p className="text-muted-foreground text-xs">
+              {result.templates ? 'Built-in attack templates' : result.generated ? 'Freshly generated by the attacker AI' : 'Saved batch'} · scored{' '}
+              <span className="font-mono">{state.kind === 'done' ? state.at : ''}</span>
+            </p>
+          </CardContent>
+        </Card>
+      )}
+
+      <Card className="gap-2 pb-2">
+        <CornerMarks marks={[{ corner: 'tl', tone: 'violet' }, { corner: 'br', tone: 'orange' }]} />
+        <CardHeader>
+          <CardTitle>Attacks and verdicts</CardTitle>
+        </CardHeader>
+        <CardContent className="px-2">
+          {state.kind === 'error' ? (
+            <EmptyState
+              icon={TriangleAlert}
+              className="mx-3 mb-3 min-h-48"
+              message={`The red team failed: ${state.message}`}
+              action={
+                <Button size="sm" variant="outline" onClick={rescore}>
+                  <RotateCcw aria-hidden />
+                  Re-score saved batch
+                </Button>
+              }
+            />
+          ) : !result ? (
+            <EmptyState
+              icon={Bot}
+              className="mx-3 mb-3 min-h-48"
+              message={state.kind === 'running' ? state.label : 'No attacks yet. Generate a batch, or re-score the saved one.'}
+            />
+          ) : (
+            <Table>
+              <TableHeader>
+                <TableRow className="hover:bg-transparent">
+                  <TableHead>Attack</TableHead>
+                  <TableHead className="hidden md:table-cell">Trick</TableHead>
+                  <TableHead>Got</TableHead>
+                  <TableHead className="hidden lg:table-cell">Rules</TableHead>
+                  <TableHead>Result</TableHead>
+                </TableRow>
+              </TableHeader>
+              <TableBody>
+                {result.per_case.map((c, i) => (
+                  <TableRow
+                    key={`${c.name}-${i}`}
+                    className={cn('ag-row-reveal', !c.pass && 'bg-blocked-soft/40 hover:bg-blocked-soft/50')}
+                    style={{ animationDelay: `${Math.min(i, 12) * 60}ms` }}
+                  >
+                    <TableCell>
+                      <div className="font-medium">{c.name}</div>
+                      <div className="text-muted-foreground text-xs">{taskLabel(c.task)}</div>
+                    </TableCell>
+                    <TableCell className="text-muted-foreground hidden text-sm md:table-cell">{c.trick ?? '—'}</TableCell>
+                    <TableCell>
+                      <VerdictBadge verdict={c.got} />
+                    </TableCell>
+                    <TableCell className="hidden font-mono text-xs lg:table-cell">{c.rules.map((r) => r.split('_')[0]).join(', ') || '—'}</TableCell>
+                    <TableCell>
+                      <span className={cn('inline-flex items-center gap-1.5 font-medium whitespace-nowrap', c.pass ? 'text-allowed-ink' : 'text-blocked-ink')}>
+                        {c.pass ? <CircleCheck aria-hidden className="text-allowed size-4" /> : <ShieldX aria-hidden className="text-blocked size-4" />}
+                        {c.pass ? 'Stopped' : 'Got through'}
+                      </span>
+                    </TableCell>
+                  </TableRow>
+                ))}
+              </TableBody>
+              <TableCaption className="mb-2">{result.total} attacks</TableCaption>
             </Table>
           )}
         </CardContent>
