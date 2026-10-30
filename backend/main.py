@@ -11,6 +11,7 @@ import time
 from contextlib import asynccontextmanager
 from pathlib import Path
 
+from backend import insights
 from dotenv import load_dotenv
 from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
@@ -139,10 +140,12 @@ def _review_timeout_min() -> float:
     return float(os.getenv("REVIEW_TIMEOUT_MIN", "10"))
 
 
-def _process(task: str, doc: str, raw_calls: list, source: str) -> RunResult:
+def _process(task: str, doc: str, raw_calls: list, source: str, text: str = "") -> RunResult:
     """Judge every proposed call in order with one shared RunContext; run tools only on ALLOW."""
     ctx = gate.RunContext()
     proposed, decisions, outputs = [], [], []
+    hidden = insights.hidden_instructions(text)
+    extras: list[schemas.CallExtras] = []
     for raw in raw_calls:
         record = _as_record(raw)
         decision = gate.check(raw, task, POLICY, ctx)
@@ -165,16 +168,23 @@ def _process(task: str, doc: str, raw_calls: list, source: str) -> RunResult:
         decisions.append(decision)
         outputs.append(output)
     return RunResult(proposed=proposed, decisions=decisions, outputs=outputs)
+    return schemas.RunResult(proposed=proposed, decisions=decisions, outputs=outputs, extras=extras)
 
 
 @app.post("/api/run")
 def run_task(req: RunRequest) -> RunResult:
-    text = _read_doc(_resolve_doc(req.doc))
-    return _process(req.task, req.doc, _propose(req.task, text, req.doc), "run")
-
+    result = _process(req.task, req.doc, raw_calls, "run", text=text)
+   
 
 @app.post("/api/inject")
 def inject_calls(req: InjectRequest) -> RunResult:
+            # ... existing gate.check and tools.execute logic ...
+
+        call_extras = schemas.CallExtras(
+            hidden_text=hidden,
+            egress=insights.egress_preview(record, POLICY) if isinstance(record, schemas.ToolCall) else None
+        )
+        extras.append(call_extras)
     """Raw tool calls straight to the gate (no LLM), through exactly the same path as /api/run."""
     return _process(req.task, INJECT_DOC, req.calls, "inject")
 
