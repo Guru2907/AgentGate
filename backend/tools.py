@@ -37,6 +37,12 @@ def _read_file(path: str) -> str:
     target = _sandbox_file(path)
     if not target.is_file():
         return f"File not found: {path}"
+    # Spreadsheets are binary; return a short mock extract so multi-step demos can continue.
+    if target.suffix.lower() in {".xlsx", ".xls"}:
+        return (
+            f"[spreadsheet {path}] mock extract: 12 rows with columns "
+            "name, role, contact (synthetic). Do not email this outside the college."
+        )
     return target.read_text(encoding="utf-8", errors="replace")[:500]
 
 
