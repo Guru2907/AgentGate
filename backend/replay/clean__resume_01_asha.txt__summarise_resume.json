@@ -1,0 +1,13 @@
+{
+  "task": "summarise_resume",
+  "doc": "clean/resume_01_asha.txt",
+  "model": "openai/gpt-oss-20b",
+  "calls": [
+    {
+      "tool": "summarise",
+      "args": {
+        "document_id": "clean/resume_01_asha.txt"
+      }
+    }
+  ]
+}
