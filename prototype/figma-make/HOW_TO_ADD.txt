@@ -1,0 +1,35 @@
+AgentGate - adding the Figma Make prototype (takes about 5 minutes)
+=====================================================================
+
+The branch and this folder are already set up. You only need to do this:
+
+1. ACCEPT THE INVITE
+   Open https://github.com/Guru2907/AgentGate/invitations and click Accept.
+
+2. GET THE CODE (once)
+   git clone https://github.com/Guru2907/AgentGate.git
+   cd AgentGate
+   git checkout feature/figma-make
+
+   (Already cloned?  git fetch  then  git checkout feature/figma-make)
+   First time using git on this laptop? Also run:
+   git config user.name "Your Name"
+   git config user.email "the-email-on-your-github-account"
+
+3. DOWNLOAD YOUR FIGMA MAKE CODE AS A ZIP
+   In your Figma Make file, open the code view and use the menu to
+   download / export the project as a .zip. Save it, e.g. to Downloads.
+
+4. RUN ONE COMMAND (from the AgentGate folder)
+   python prototype/add_figma_export.py "C:\Users\<you>\Downloads\<your-export>.zip"
+
+   It copies the files here, checks them, asks "Commit and push?" -> type y.
+   If it stops with a list of problems, fix those lines in Figma Make,
+   download again, and re-run the same command.
+
+5. OPEN THE PULL REQUEST
+   GitHub shows a yellow "Compare & pull request" banner -> click it.
+   Base: main   Compare: feature/figma-make
+   Paste the title and description Gurpreet sends you -> Create pull request.
+
+Rules: fake data only, no API keys, keep the horse logo image in the export.
