@@ -51,6 +51,33 @@ export interface ApiChain {
   broken_at?: number
 }
 
+export type ApiRuleStatus = 'passed' | 'failed' | 'review' | 'not_applicable'
+
+export interface ApiRuleGuideEntry {
+  title: string
+  plain: string
+  why: string
+  example: string
+  what_to_do: string
+}
+
+export interface ApiRuleCheck {
+  rule: string
+  status: ApiRuleStatus
+  detail: string
+}
+
+export interface ApiLogExplanation {
+  row: LogEntry
+  checks: ApiRuleCheck[]
+  run_steps: LogEntry[]
+  hidden_text: string | null
+  policy_section: ApiTaskPolicy
+  guide: Record<string, ApiRuleGuideEntry>
+  egress: { recipient: string | null; attachment: string | null; detected: string[] } | null
+  resolution: LogEntry | null
+}
+
 export interface ApiBenchCase {
   name: string
   kind: 'clean' | 'hostile'
@@ -193,6 +220,17 @@ export const api = {
     const rows = await request<LogEntry[]>('/logs')
     return rows.map((r) => ({ ...r, ts: withDate(r.ts) }))
   },
+  explainLog: async (id: number): Promise<ApiLogExplanation> => {
+    const explanation = await request<ApiLogExplanation>(`/logs/${id}/explain`)
+    const withFullDates = (row: LogEntry): LogEntry => ({ ...row, ts: withDate(row.ts) })
+    return {
+      ...explanation,
+      row: withFullDates(explanation.row),
+      run_steps: explanation.run_steps.map(withFullDates),
+      resolution: explanation.resolution ? withFullDates(explanation.resolution) : null,
+    }
+  },
+  rules: () => request<Record<string, ApiRuleGuideEntry>>('/rules'),
   verifyLogs: () => request<ApiChain>('/logs/verify'),
   reviews: () => request<ApiReview[]>('/review'),
   decideReview: (id: number, action: 'approve' | 'deny', callHash?: string) =>

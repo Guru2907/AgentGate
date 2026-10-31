@@ -396,6 +396,82 @@ def get_log(audit_id: int, workspace_id: int = 1) -> dict | None:
     return _row_from_db(r) if r else None
 
 
+def _log_entry(r: sqlite3.Row) -> LogEntry:
+    return LogEntry(id=r["id"], prev_hash=r["prev_hash"], hash=r["hash"], **_row_from_db(r))
+
+
+def get_related_logs(audit_id: int, workspace_id: int = 1, window_seconds: int = 5) -> tuple[LogEntry | None, list[LogEntry]]:
+    """Return a row and same-task/document rows recorded within the clock-time window."""
+    with closing(_connect()) as conn:
+        target = conn.execute(
+            "SELECT * FROM audit_log WHERE id = ? AND workspace_id = ?",
+            (audit_id, workspace_id),
+        ).fetchone()
+        if target is None:
+            return None, []
+        rows = conn.execute(
+            "SELECT * FROM audit_log WHERE workspace_id = ? AND task = ? AND doc = ? ORDER BY id",
+            (workspace_id, target["task"], target["doc"]),
+        ).fetchall()
+
+    def seconds(ts: str) -> int | None:
+        try:
+            clock = datetime.strptime(ts[-8:], "%H:%M:%S")
+        except (TypeError, ValueError):
+            return None
+        return clock.hour * 3600 + clock.minute * 60 + clock.second
+
+    target_time = seconds(target["ts"])
+    related: list[LogEntry] = []
+    for row in rows:
+        if row["id"] == audit_id:
+            continue
+        row_time = seconds(row["ts"])
+        if target_time is None or row_time is None:
+            continue
+        difference = abs(target_time - row_time)
+        difference = min(difference, 24 * 60 * 60 - difference)
+        if difference <= window_seconds:
+            related.append(_log_entry(row))
+    return _log_entry(target), related
+
+
+def get_review_resolution(audit_id: int, workspace_id: int = 1) -> LogEntry | None:
+    """Find the appended human/timeout decision for the review created by an audit row."""
+    with closing(_connect()) as conn:
+        review = conn.execute(
+            "SELECT * FROM review_queue WHERE audit_id = ? AND workspace_id = ?",
+            (audit_id, workspace_id),
+        ).fetchone()
+        if review is None or review["status"] == "pending":
+            return None
+        call = json.loads(review["call_json"])
+        expected_rule = {
+            "approved": "HUMAN_APPROVED",
+            "denied": "HUMAN_DENIED",
+            "expired": "REVIEW_TIMEOUT",
+            "tampered": "R11_APPROVAL_TAMPERED",
+        }.get(review["status"])
+        if expected_rule is None:
+            return None
+        rows = conn.execute(
+            "SELECT * FROM audit_log WHERE workspace_id = ? AND id > ? AND task = ? AND doc = ?"
+            " AND tool = ? AND args_json = ? AND source IN ('review', 'timeout') ORDER BY id",
+            (
+                workspace_id,
+                audit_id,
+                review["task"],
+                review["doc"],
+                call.get("tool", "?"),
+                _canonical(call.get("args", {})),
+            ),
+        ).fetchall()
+    for row in rows:
+        if expected_rule in json.loads(row["rules_json"]):
+            return _log_entry(row)
+    return None
+
+
 def verify_chain(workspace_id: int = 1) -> dict:
     """Recompute every row's hash in order. Any edited, inserted or deleted row breaks the chain."""
     with closing(_connect()) as conn:

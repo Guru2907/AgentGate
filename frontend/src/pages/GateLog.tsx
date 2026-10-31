@@ -1,23 +1,30 @@
-import { useMemo, useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import { toast } from 'sonner'
-import { Check, Copy, Search, SearchX, X } from 'lucide-react'
+import { Check, CircleX, Copy, Minus, Search, SearchX, TriangleAlert, X, type LucideIcon } from 'lucide-react'
 
+import { api, type ApiChain, type ApiLogExplanation, type ApiRuleGuideEntry, type ApiRuleStatus } from '@/api'
 import type { LogEntry, Verdict } from '@/types'
+import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert'
 import { Button } from '@/components/ui/button'
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogHeader,
+  DialogTitle,
+} from '@/components/ui/dialog'
 import { Input } from '@/components/ui/input'
-import { Sheet, SheetBody, SheetContent, SheetDescription, SheetHeader, SheetTitle } from '@/components/ui/sheet'
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table'
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip'
 import { BreakableText } from '@/components/BreakableText'
 import { ChainChip } from '@/components/ChainChip'
 import { CornerMarks } from '@/components/CornerMarks'
+import { EgressPreview } from '@/components/EgressPreview'
 import { EmptyState } from '@/components/EmptyState'
 import { FieldList } from '@/components/FieldList'
 import { PageHeader } from '@/components/PageHeader'
-import { RuleReasonList } from '@/components/RuleReason'
 import { SourceBadge } from '@/components/SourceBadge'
-import { ToolCallBlock } from '@/components/ToolCallBlock'
 import { VerdictBadge } from '@/components/VerdictBadge'
 import { docName, formatTime, ruleShortId, shortHash, taskLabel } from '@/lib/format'
 import { cn } from '@/lib/utils'
@@ -67,7 +74,7 @@ export function GateLog({ focusLogId = null }: { focusLogId?: number | null }) {
   const [tab, setTab] = useState<Filter>('all')
   const [query, setQuery] = useState('')
   const [selectedId, setSelectedId] = useState<number | null>(focusLogId)
-  const [sheetOpen, setSheetOpen] = useState(focusLogId !== null)
+  const [dialogOpen, setDialogOpen] = useState(focusLogId !== null)
   // Rows added after mount animate in; seeded rows don't.
   const [initialMaxId] = useState(() => state.log[state.log.length - 1]?.id ?? 0)
 
@@ -92,7 +99,7 @@ export function GateLog({ focusLogId = null }: { focusLogId?: number | null }) {
 
   function open(entry: LogEntry) {
     setSelectedId(entry.id)
-    setSheetOpen(true)
+    setDialogOpen(true)
   }
 
   function reset() {
@@ -247,9 +254,11 @@ export function GateLog({ focusLogId = null }: { focusLogId?: number | null }) {
         </TabsContent>
       </Tabs>
 
-      <Sheet open={sheetOpen && !!selected} onOpenChange={setSheetOpen}>
-        <SheetContent>{selected && <LogDetail entry={selected} resolvedBy={state.resolutions[selected.id]} />}</SheetContent>
-      </Sheet>
+      <Dialog open={dialogOpen && !!selected} onOpenChange={setDialogOpen}>
+        <DialogContent className="max-h-[90vh] overflow-y-auto sm:max-w-4xl">
+          {selected && <LogDetail key={selected.id} entry={selected} resolvedBy={state.resolutions[selected.id]} />}
+        </DialogContent>
+      </Dialog>
     </div>
   )
 }
@@ -288,48 +297,283 @@ function HashValue({ value, label }: { value?: string; label: string }) {
   )
 }
 
+const CHECK_STATUS: Record<ApiRuleStatus, { label: string; Icon: LucideIcon; className: string }> = {
+  passed: { label: 'Passed', Icon: Check, className: 'text-allowed-ink' },
+  failed: { label: 'Failed', Icon: CircleX, className: 'text-blocked-ink' },
+  review: { label: 'Needs review', Icon: TriangleAlert, className: 'text-review-ink' },
+  not_applicable: { label: 'Not relevant', Icon: Minus, className: 'text-muted-foreground' },
+}
+
+function actionText(entry: LogEntry): string {
+  if (entry.tool === 'send_email') {
+    const recipient = typeof entry.args.to === 'string' ? entry.args.to : 'an unknown address'
+    return `tried to email ${recipient}`
+  }
+  if (entry.tool === 'read_file' || entry.tool === 'delete_file') {
+    const path = typeof entry.args.path === 'string' ? entry.args.path : 'an unknown file'
+    return `tried to ${entry.tool === 'read_file' ? 'read' : 'delete'} ${path}`
+  }
+  if (entry.tool === 'summarise') return 'tried to summarize a document'
+  return `proposed ${entry.tool}`
+}
+
+function outcomeText(entry: LogEntry): string {
+  if (entry.verdict === 'BLOCK') return `AgentGate blocked it. ${entry.tool === 'send_email' ? 'Nothing was sent.' : 'Nothing ran.'}`
+  if (entry.verdict === 'REVIEW') return 'AgentGate asked a person to review it. Nothing ran yet.'
+  return entry.executed ? 'AgentGate allowed it and the mock tool ran.' : 'AgentGate allowed it, but the tool did not run.'
+}
+
+function happenedText(entry: LogEntry): string {
+  const action = actionText(entry)
+  if (entry.source === 'review' || entry.source === 'timeout') {
+    return `${humanDecisionLabel(entry)} The reviewed call ${action}. ${outcomeText(entry)}`
+  }
+  const origin = entry.source === 'inject'
+    ? 'A direct test call'
+    : `While checking ${docName(entry.doc)}, the AI`
+  return `${origin} ${action}. ${outcomeText(entry)}`
+}
+
+function humanDecisionLabel(entry: LogEntry): string {
+  if (entry.rules.includes('HUMAN_APPROVED')) return 'A person approved the action.'
+  if (entry.rules.includes('HUMAN_DENIED')) return 'A person denied the action.'
+  if (entry.rules.includes('REVIEW_TIMEOUT') || entry.source === 'timeout') return 'The review timer ran out; the action was stopped.'
+  if (entry.rules.includes('R11_APPROVAL_TAMPERED')) return 'The approval check found that the action had changed.'
+  return `Human review ended with ${entry.verdict}.`
+}
+
+function GuideValue({ label, value }: { label: string; value?: string }) {
+  if (!value) return null
+  return (
+    <div className="space-y-1">
+      <dt className="text-muted-foreground text-xs font-semibold uppercase tracking-wide">{label}</dt>
+      <dd className="text-sm leading-relaxed">{value}</dd>
+    </div>
+  )
+}
+
+function RuleCheckRow({
+  check,
+  guide,
+}: {
+  check: ApiLogExplanation['checks'][number]
+  guide?: ApiRuleGuideEntry
+}) {
+  const state = CHECK_STATUS[check.status]
+  const Icon = state.Icon
+  return (
+    <details className="group rounded-lg border bg-card px-4 py-3">
+      <summary className="flex cursor-pointer list-none flex-wrap items-center gap-x-3 gap-y-1 outline-none focus-visible:ring-2 focus-visible:ring-ring">
+        <Icon aria-hidden className={`size-4 shrink-0 ${state.className}`} />
+        <span className="min-w-0 flex-1 font-medium">{guide?.title ?? check.rule}</span>
+        <span className={`text-xs font-semibold ${state.className}`}>{state.label}</span>
+        <code className="text-muted-foreground w-full text-xs sm:w-auto">{check.rule}</code>
+      </summary>
+      <div className="mt-3 space-y-3 border-t pt-3">
+        <p className="text-sm leading-relaxed">{check.detail}</p>
+        {guide && (
+          <dl className="grid gap-3 sm:grid-cols-2">
+            <GuideValue label="What it means" value={guide.plain} />
+            <GuideValue label="Why it matters" value={guide.why} />
+            <GuideValue label="Example" value={guide.example} />
+            <GuideValue label="What to do" value={guide.what_to_do} />
+          </dl>
+        )}
+      </div>
+    </details>
+  )
+}
+
 function LogDetail({ entry, resolvedBy }: { entry: LogEntry; resolvedBy?: number }) {
+  const [explanation, setExplanation] = useState<ApiLogExplanation | null>(null)
+  const [guide, setGuide] = useState<Record<string, ApiRuleGuideEntry>>({})
+  const [loading, setLoading] = useState(true)
+  const [error, setError] = useState<string | null>(null)
+  const [chain, setChain] = useState<ApiChain | null>(null)
+
+  useEffect(() => {
+    let active = true
+    Promise.all([api.explainLog(entry.id), api.rules()])
+      .then(([detail, allRules]) => {
+        if (!active) return
+        setExplanation(detail)
+        setGuide(allRules)
+      })
+      .catch((err: unknown) => {
+        if (active) setError(err instanceof Error ? err.message : 'Could not load the explanation.')
+      })
+      .finally(() => {
+        if (active) setLoading(false)
+      })
+    return () => {
+      active = false
+    }
+  }, [entry.id])
+
+  async function verifyChain() {
+    try {
+      const result = await api.verifyLogs()
+      setChain(result)
+      toast(result.ok ? 'The audit chain is intact.' : `The audit chain has a problem at row #${result.broken_at}.`)
+    } catch {
+      toast.error('Could not verify the audit chain.')
+    }
+  }
+
+  const timelineRows = explanation
+    ? [...explanation.run_steps, explanation.row]
+        .filter((step) => step.id !== explanation.resolution?.id)
+        .sort((left, right) => left.id - right.id)
+    : [entry]
+  const resolvedRule = explanation?.resolution
+    ? explanation.resolution.rules[0]
+    : null
+
   return (
     <>
-      <SheetHeader>
+      <DialogHeader className="border-b px-6 py-5 pr-14">
         <span className="eyebrow">Log entry #{entry.id}</span>
-        <SheetTitle className="flex items-center gap-3">
+        <DialogTitle className="flex items-center gap-3">
           <VerdictBadge verdict={entry.verdict} size="lg" />
-        </SheetTitle>
-        <SheetDescription className="font-mono text-xs">{entry.ts.replace('T', ' ')}</SheetDescription>
-      </SheetHeader>
-      <SheetBody className="flex flex-col gap-6">
-        <FieldList
-          fields={[
-            { label: 'Task', value: taskLabel(entry.task) },
-            { label: 'Document', value: entry.doc, mono: true },
-            { label: 'Source', value: entry.source, mono: true },
-            { label: 'Executed', value: <ExecutedText entry={entry} resolvedBy={resolvedBy} /> },
-          ]}
-        />
-        <div className="flex flex-col gap-2">
-          <span className="eyebrow">Proposed tool call</span>
-          <ToolCallBlock call={{ tool: entry.tool, args: entry.args }} />
-        </div>
-        <div className="flex flex-col gap-1">
-          <span className="eyebrow">Rules hit</span>
-          {entry.rules.length > 0 ? (
-            <RuleReasonList rules={entry.rules} reasons={entry.reasons} verdict={entry.verdict} />
-          ) : (
-            <p className="py-2 text-sm">No rules hit. The call matched the task policy.</p>
+        </DialogTitle>
+        <DialogDescription className="font-mono text-xs">{entry.ts.replace('T', ' ')}</DialogDescription>
+      </DialogHeader>
+      <div className="flex flex-col gap-7 px-6 py-5">
+        {loading && <p className="text-muted-foreground text-sm">Loading the decision explanation…</p>}
+        {error && (
+          <Alert variant="destructive">
+            <AlertTitle>Could not load this explanation</AlertTitle>
+            <AlertDescription>{error}</AlertDescription>
+          </Alert>
+        )}
+        <section className="space-y-3">
+          <h3 className="font-semibold">What happened</h3>
+          <p className="bg-muted rounded-lg border p-4 text-sm leading-relaxed">
+            {happenedText(entry)}
+          </p>
+        </section>
+
+        <section className="space-y-3">
+          <h3 className="font-semibold">Step by step</h3>
+          <ol className="border-muted ml-2 space-y-0 border-l pl-5">
+            <li className="relative py-2 text-sm leading-relaxed before:absolute before:top-3 before:-left-[1.65rem] before:size-2 before:rounded-full before:bg-muted-foreground">
+              {entry.source === 'inject' ? 'A direct test call was sent to the gate.' : `The document ${docName(entry.doc)} was read.`}
+            </li>
+            {explanation?.hidden_text && (
+              <li className="relative py-2 text-sm leading-relaxed before:absolute before:top-3 before:-left-[1.65rem] before:size-2 before:rounded-full before:bg-review">
+                A hidden instruction was found in the document.
+              </li>
+            )}
+            {timelineRows.map((step) => {
+              const isHuman = step.source === 'review' || step.source === 'timeout'
+              return (
+                <li
+                  key={step.id}
+                  className="relative py-2 text-sm leading-relaxed before:absolute before:top-3 before:-left-[1.65rem] before:size-2 before:rounded-full before:bg-muted-foreground"
+                >
+                  {isHuman ? (
+                    <>{humanDecisionLabel(step)} <span className="text-muted-foreground">Log #{step.id}</span></>
+                  ) : (
+                    <>
+                      {step.source === 'inject' ? 'A test call was submitted' : `The AI proposed ${step.tool}`}
+                      {' · '}the gate checked it · <VerdictBadge verdict={step.verdict} />
+                    </>
+                  )}
+                </li>
+              )
+            })}
+            {explanation?.resolution && (
+              <li className="relative py-2 text-sm leading-relaxed before:absolute before:top-3 before:-left-[1.65rem] before:size-2 before:rounded-full before:bg-muted-foreground">
+                {humanDecisionLabel(explanation.resolution)} <span className="text-muted-foreground">Log #{explanation.resolution.id}</span>
+              </li>
+            )}
+            {entry.verdict === 'REVIEW' && !explanation?.resolution && entry.source !== 'review' && entry.source !== 'timeout' && (
+              <li className="relative py-2 text-sm leading-relaxed before:absolute before:top-3 before:-left-[1.65rem] before:size-2 before:rounded-full before:bg-review">
+                Waiting for a person to review this action.
+              </li>
+            )}
+          </ol>
+        </section>
+
+        <section className="space-y-3">
+          <div className="flex flex-wrap items-baseline justify-between gap-2">
+            <h3 className="font-semibold">The checks</h3>
+            <span className="text-muted-foreground text-xs">All 11 checks, with plain-language explanations</span>
+          </div>
+          {explanation && (
+            <div className="space-y-2">
+              {explanation.checks.map((check) => (
+                <RuleCheckRow key={check.rule} check={check} guide={guide[check.rule] ?? explanation.guide[check.rule]} />
+              ))}
+            </div>
           )}
-        </div>
-        <div className="flex flex-col gap-2">
-          <span className="eyebrow">Chain</span>
-          <FieldList
-            className={cn('bg-muted rounded-lg border p-3')}
-            fields={[
-              { label: 'hash', value: <HashValue value={entry.hash} label="hash" />, mono: true },
-              { label: 'prev hash', value: <HashValue value={entry.prev_hash} label="previous hash" />, mono: true },
-            ]}
-          />
-        </div>
-      </SheetBody>
+          {explanation?.policy_section && (
+            <details className="rounded-lg border px-4 py-3">
+              <summary className="cursor-pointer text-sm font-medium">Current policy for this task</summary>
+              <pre className="bg-muted mt-3 overflow-x-auto rounded-lg border p-3 text-xs whitespace-pre-wrap">
+                {JSON.stringify(explanation.policy_section, null, 2)}
+              </pre>
+            </details>
+          )}
+          {resolvedRule && guide[resolvedRule] && (
+            <p className="text-muted-foreground text-xs">Review result: {guide[resolvedRule].plain}</p>
+          )}
+        </section>
+
+        <section className="space-y-3">
+          <h3 className="font-semibold">What would have left</h3>
+          {explanation?.egress ? (
+            <div className="rounded-lg border px-4">
+              <EgressPreview egress={explanation.egress} />
+            </div>
+          ) : (
+            <p className="text-muted-foreground text-sm">This call did not try to send an email.</p>
+          )}
+        </section>
+
+        <section className="space-y-3">
+          <h3 className="font-semibold">Where the attack came from</h3>
+          {explanation?.hidden_text ? (
+            <p className="rounded-lg border border-review/50 bg-review-soft p-4 text-sm leading-relaxed text-review-ink">
+              <mark className="rounded bg-review/25 px-1 text-inherit">{explanation.hidden_text}</mark>
+            </p>
+          ) : (
+            <p className="text-muted-foreground text-sm">
+              {entry.source === 'inject' ? 'This call came directly from the test input, not a document.' : 'No hidden instruction was found in the document.'}
+            </p>
+          )}
+        </section>
+
+        <details className="rounded-lg border px-4 py-3">
+          <summary className="cursor-pointer font-semibold">For auditors</summary>
+          <div className="mt-4 flex flex-col gap-4">
+            <div className="flex flex-col gap-2">
+              <span className="eyebrow">Raw call JSON</span>
+              <pre className="bg-muted overflow-x-auto rounded-lg border p-3 text-xs whitespace-pre-wrap break-words">
+                {JSON.stringify({ tool: entry.tool, args: entry.args }, null, 2)}
+              </pre>
+            </div>
+            <FieldList
+              className="bg-muted rounded-lg border p-3"
+              fields={[
+                { label: 'hash', value: <HashValue value={entry.hash} label="hash" />, mono: true },
+                { label: 'previous hash', value: <HashValue value={entry.prev_hash} label="previous hash" />, mono: true },
+                { label: 'Source', value: entry.source, mono: true },
+                { label: 'Resolved by', value: resolvedBy ? `Log #${resolvedBy}` : explanation?.resolution ? `Log #${explanation.resolution.id}` : '—' },
+              ]}
+            />
+            <div className="flex flex-wrap items-center gap-3">
+              <Button variant="outline" size="sm" onClick={verifyChain}>Verify chain</Button>
+              {chain && (
+                <span className={`text-sm ${chain.ok ? 'text-allowed-ink' : 'text-blocked-ink'}`}>
+                  {chain.ok ? `Verified ${chain.rows} rows.` : `Broken at row #${chain.broken_at}.`}
+                </span>
+              )}
+            </div>
+          </div>
+        </details>
+
+      </div>
     </>
   )
 }
