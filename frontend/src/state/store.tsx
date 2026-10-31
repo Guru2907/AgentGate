@@ -113,9 +113,10 @@ function reducer(state: StoreState, action: Action): StoreState {
     case 'SET_RESOLUTION':
       return { ...state, resolutions: { ...state.resolutions, [action.logId]: action.resolutionId } }
     case 'SET_DOCUMENTS': {
-      const selected = action.documents.some((d) => d.name === state.runSession.selected)
-        ? state.runSession.selected
-        : (action.documents[0]?.name ?? state.runSession.selected)
+      const selectedDocument = action.documents.find(
+        (document) => document.path === state.runSession.selected || document.name === state.runSession.selected,
+      )
+      const selected = selectedDocument?.path ?? action.documents[0]?.path ?? state.runSession.selected
       return { ...state, runSession: { ...state.runSession, documents: action.documents, selected } }
     }
     case 'RESOLVE_REVIEW': {
@@ -166,7 +167,12 @@ function initialState(): StoreState {
     reviewQueue: seedReviewQueue(),
     outbox: SEED_OUTBOX,
     resolutions: {},
-    runSession: { task: 'summarise_resume', documents: RUN_DOCUMENTS, selected: DEFAULT_DOCUMENT, phase: { kind: 'idle' } },
+    runSession: {
+      task: 'summarise_resume',
+      documents: RUN_DOCUMENTS,
+      selected: RUN_DOCUMENTS.find((document) => document.name === DEFAULT_DOCUMENT)?.path ?? DEFAULT_DOCUMENT,
+      phase: { kind: 'idle' },
+    },
     backendOnline: true,
   }
 }
@@ -305,11 +311,13 @@ export function StoreProvider({ children }: { children: ReactNode }) {
 
     let cancelled = false
 
-    api
-      .docs()
-      .then((paths) => {
-        if (cancelled || paths.length === 0) return
-        dispatch({ type: 'SET_DOCUMENTS', documents: paths.map(pathToDocument) })
+    Promise.all([api.docs(), api.uploads()])
+      .then(([paths, uploads]) => {
+        if (cancelled) return
+        dispatch({
+          type: 'SET_DOCUMENTS',
+          documents: [...paths.map(pathToDocument), ...uploads.map(({ name, path, type }) => ({ name, path, type }))],
+        })
       })
       .catch(() => {
         toast.error('Could not load documents from the backend.')
@@ -339,7 +347,7 @@ export function StoreProvider({ children }: { children: ReactNode }) {
   const startRun = useCallback<StoreValue['startRun']>(
     (source) => {
       const { task, documents, selected } = stateRef.current.runSession
-      const doc = documents.find((d) => d.name === selected) ?? documents[0]
+      const doc = documents.find((d) => d.path === selected || d.name === selected) ?? documents[0]
       if (!doc) return // documents not loaded yet
       const request: RunRequest = { task: source === 'inject' ? 'summarise_resume' : task, doc: doc.path }
 

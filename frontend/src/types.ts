@@ -32,7 +32,18 @@ export interface RunResult {
   outputs: string[]
   /** Per-call insight from the backend (hidden text in the document, what an email would take out). */
   extras?: CallExtras[]
+  screening?: ResumeScreening | null
 } // same index = same call; blocked output = "(not executed)"
+
+export interface ResumeScreening {
+  summary: string
+  skills: string[]
+  experience: string
+  fit_score: number
+  rationale: string
+  engine: 'ai' | 'heuristic'
+  hidden_findings: string[]
+}
 
 export interface LogEntry {
   id: number
