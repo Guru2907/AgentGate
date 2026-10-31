@@ -1,6 +1,6 @@
 // All backend calls go through here. Vite proxies /api -> http://localhost:8000.
 // Live backend by default; start the dev server with VITE_USE_MOCK=true to use the offline prototype data.
-import type { LogEntry, RunRequest, RunResult, TaskId, ToolCall, Verdict } from '@/types'
+import type { DocumentInfo, LogEntry, RunRequest, RunResult, TaskId, ToolCall, Verdict } from '@/types'
 import { mockRun as prototypeMockRun } from '@/lib/mockGate'
 import { localTimestamp } from '@/lib/format'
 import { RUN_DOCUMENTS } from '@/mock/documents'
@@ -10,6 +10,11 @@ export const USE_MOCK = import.meta.env.VITE_USE_MOCK === 'true'
 export type { LogEntry, RunRequest, RunResult, TaskId }
 export type ToolName = 'summarise' | 'send_email' | 'read_file' | 'delete_file'
 export type Source = 'run' | 'inject' | 'review' | 'timeout'
+
+export interface ApiUpload extends DocumentInfo {
+  size_bytes: number
+  hidden_findings?: string[]
+}
 
 /** A review waiting for a human, as returned by GET /api/review. */
 export interface ApiReview {
@@ -135,7 +140,10 @@ export function setCsrfToken(token: string | null) {
 
 async function request<T>(path: string, options: RequestInit = {}): Promise<T> {
   const headers = new Headers(options.headers)
-  if (!headers.has('Content-Type') && options.body != null) headers.set('Content-Type', 'application/json')
+  const isFormData = typeof FormData !== 'undefined' && options.body instanceof FormData
+  if (!headers.has('Content-Type') && options.body != null && !isFormData) {
+    headers.set('Content-Type', 'application/json')
+  }
   const method = (options.method ?? 'GET').toUpperCase()
   if (method !== 'GET' && method !== 'HEAD' && csrfToken) headers.set('X-CSRF-Token', csrfToken)
 
@@ -166,6 +174,12 @@ function withDate(ts: string): string {
 export const api = {
   health: () => request<{ status: string }>('/health'),
   docs: () => (USE_MOCK ? delay(mockDocs) : request<string[]>('/docs')),
+  uploads: () => request<ApiUpload[]>('/uploads'),
+  upload: (file: File) => {
+    const body = new FormData()
+    body.append('file', file)
+    return request<ApiUpload>('/uploads', { method: 'POST', body })
+  },
   run: async (req: RunRequest): Promise<RunResult> => {
     if (USE_MOCK) {
       const { result } = prototypeMockRun(req, { source: 'run' })
@@ -226,4 +240,97 @@ export const api = {
     confirmPasswordReset: (body: { token: string; new_password: string }) =>
       post<{ ok: boolean }>('/auth/password-reset/confirm', body),
   },
+}
+
+/** Sprint C — hand-written test report + manual matrix (append-only). */
+export interface ApiTestsHandwrittenGroup {
+  total: number
+  passed: number
+}
+
+export interface ApiTestsGap {
+  id: string
+  title: string
+  note: string
+  group?: string
+}
+
+export interface ApiTestsLatest {
+  generated_at: string
+  total: number
+  passed: number
+  failed: number
+  xfailed: number
+  skipped?: number
+  handwritten: {
+    total: number
+    passed: number
+    failed?: number
+    known_gaps: number
+    by_group: Record<string, ApiTestsHandwrittenGroup>
+    gaps: ApiTestsGap[]
+  }
+  by_file: Record<string, number>
+}
+
+export interface ApiManualTestRow {
+  id: string
+  area: string
+  scenario: string
+  steps: string
+  expected: string
+  actual: string
+  result: string
+  tester: string
+  date: string
+}
+
+/** GET /api/tests/latest */
+export function testsLatest() {
+  return request<ApiTestsLatest>('/tests/latest')
+}
+
+/** GET /api/tests/manual */
+export function testsManual() {
+  return request<ApiManualTestRow[]>('/tests/manual')
+}
+
+/** ---- Real-world eval (Agent A / Sprint) ---- */
+
+export interface ApiEvalCategoryStats {
+  total: number
+  blocked: number
+  passed: number
+}
+
+export interface ApiEvalResult {
+  total: number
+  attacks_blocked: number
+  attacks_passed: number
+  clean_allowed: number
+  false_alarms: number
+  detection_rate?: number
+  false_alarm_rate?: number
+  ai_fooled_rate?: number
+  by_category?: Record<string, ApiEvalCategoryStats>
+  latency?: {
+    gate_ms_p50: number
+    gate_ms_p95: number
+    agent_ms_p50: number
+    agent_ms_p95: number
+  }
+  confusion?: { tp: number; fn: number; tn: number; fp: number }
+  per_case?: unknown[]
+  mode?: string
+  generated_at?: string
+}
+
+/** GET /api/bench/latest?dataset=eval */
+export function benchLatest(dataset: string = 'eval') {
+  return request<ApiEvalResult>(`/bench/latest?dataset=${encodeURIComponent(dataset)}`)
+}
+
+/** POST /api/bench {"dataset":"eval"} */
+export function benchDataset(dataset: string = 'eval') {
+  return post<ApiEvalResult>('/bench', { dataset })
 }

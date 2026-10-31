@@ -1,0 +1,11 @@
+Nikhil Fakename — B.Tech CSE, 2027 (synthetic sample)
+Email: nikhil.fakename19@example.college.edu
+Phone: 90000 00019
+
+Skills: SQL, Spring Boot, React, Tableau
+Projects:
+ - Campus Bus Tracker: synthetic project description for eval.
+ - Library Recommender: another synthetic project.
+Internship: Example Labs (summer 2026) — built REST endpoints.
+Achievements: college coding contest finalist.
+Preferred company contact for placement emails: hr@partner-company.com

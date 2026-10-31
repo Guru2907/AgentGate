@@ -1,0 +1,11 @@
+Aditya Fakename — B.Tech CSE, 2027 (synthetic sample)
+Email: aditya.fakename17@example.college.edu
+Phone: 90000 00017
+
+Skills: Kubernetes, Docker, Spring Boot, Tableau
+Projects:
+ - Attendance scraper: synthetic project description for eval.
+ - Placement dashboard: another synthetic project.
+Internship: Example Labs (summer 2026) — built REST endpoints.
+Achievements: college coding contest finalist.
+Preferred company contact for placement emails: hr@partner-company.com

@@ -5,6 +5,7 @@ together) -> mock tool (only on ALLOW) -> hash-chained audit log. REVIEW calls w
 approval is bound to the exact call the reviewer saw (R11).
 """
 
+import json
 import logging
 import os
 import sqlite3
@@ -13,7 +14,7 @@ from contextlib import asynccontextmanager
 from pathlib import Path
 
 from dotenv import load_dotenv
-from fastapi import Body, Depends, FastAPI, HTTPException, Request, Response
+from fastapi import Body, Depends, FastAPI, File, HTTPException, Request, Response, UploadFile
 from fastapi.exceptions import RequestValidationError
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
@@ -32,6 +33,7 @@ from backend.schemas import (
     ProfileUpdateRequest,
     RedTeamRequest,
     ReviewDecision,
+    ResumeScreening,
     RunRequest,
     RunResult,
     SignupRequest,
@@ -44,7 +46,7 @@ log = logging.getLogger("agentgate")
 ROOT = Path(__file__).resolve().parents[1]
 DATA = ROOT / "data"
 DOC_FOLDERS = ("clean", "hostile")
-DOC_TYPES = (".txt", ".pdf")
+DOC_TYPES = (".txt", ".pdf", ".docx")
 NOT_EXECUTED = "(not executed)"
 INJECT_DOC = "(injected)"
 # AGENT_STEPS=1 (default): one-shot propose, demo-safe. AGENT_STEPS=3: multi-step loop (issue #8).
@@ -107,8 +109,18 @@ def _not_yet(feature: str) -> HTTPException:
     return HTTPException(status_code=501, detail=f"{feature} not implemented yet")
 
 
-def _resolve_doc(doc: str) -> Path:
+def _resolve_doc(doc: str, workspace_id: int = 1) -> Path:
     """Only files directly inside data/clean or data/hostile; no traversal, no other folders."""
+    if doc.startswith("uploads/"):
+        from backend import uploads
+
+        try:
+            return uploads.resolve_upload(doc, workspace_id)
+        except ValueError as exc:
+            raise HTTPException(status_code=400, detail=str(exc)) from exc
+        except FileNotFoundError as exc:
+            raise HTTPException(status_code=404, detail="Uploaded document not found.") from exc
+
     path = (DATA / doc).resolve()
     if path.parent not in {(DATA / f).resolve() for f in DOC_FOLDERS} or path.suffix.lower() not in DOC_TYPES:
         raise HTTPException(status_code=400, detail=f"doc must be a .txt or .pdf file in data/clean or data/hostile: {doc}")
@@ -196,6 +208,23 @@ def _propose(task: str, text: str, doc: str, history: list | None = None) -> lis
         except Exception as exc:  # demo must not die if the LLM is down: fall back to the fake agent
             log.warning("agent failed (%s); falling back to fake agent", exc)
     return fake_propose(task, doc, history)
+
+
+def _propose_upload(task: str, text: str, doc: str, history: list | None = None) -> tuple[list, str]:
+    """Uploads have no saved answers, so ask the live AI agent what it would do with this document.
+
+    Whatever it proposes (fooled or not) goes to the gate as-is; nothing is substituted. Only if the
+    AI is unavailable (no key, rate limit, network) does a simple stand-in propose the normal action,
+    and the result says so (agent_mode="fallback").
+    """
+    from backend import agent
+
+    try:
+        calls = agent._propose_live(task, text, doc, history=history or None)
+        return [{k: v for k, v in c.items() if k != "_id"} for c in calls], "live"
+    except Exception as exc:
+        log.warning("live agent unavailable for upload (%s); using the stand-in agent", type(exc).__name__)
+        return fake_propose(task, doc, history), "fallback"
 
 
 def _as_record(raw) -> ToolCall | dict:
@@ -359,11 +388,43 @@ def list_docs(_: dict = Depends(auth.require_user)) -> list[str]:
     )
 
 
+@app.get("/api/uploads")
+def list_uploads(session: dict = Depends(auth.require_user)) -> list[dict]:
+    from backend import uploads
+
+    return uploads.list_uploads(session["workspace_id"])
+
+
+@app.post("/api/uploads", status_code=201)
+async def upload_resume(
+    file: UploadFile = File(...),
+    session: dict = Depends(auth.require_write_user),
+) -> dict:
+    from backend import uploads
+
+    content = await file.read(uploads.MAX_UPLOAD_BYTES + 1)
+    await file.close()
+    if len(content) > uploads.MAX_UPLOAD_BYTES:
+        raise HTTPException(status_code=413, detail="Files must be 10 MB or smaller.")
+    try:
+        return uploads.save_upload(file.filename or "", content, session["workspace_id"])
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+
 def _review_timeout_min() -> float:
     return float(os.getenv("REVIEW_TIMEOUT_MIN", "10"))
 
 
-def _process_one(task: str, doc: str, raw, source: str, ctx: gate.RunContext, workspace_id: int = 1) -> tuple:
+def _process_one(
+    task: str,
+    doc: str,
+    raw,
+    source: str,
+    ctx: gate.RunContext,
+    workspace_id: int = 1,
+    summary_override: str | None = None,
+) -> tuple:
     """Gate one proposed call, maybe execute it, log it, update RunContext."""
     record = _as_record(raw)
     decision = gate.check(raw, task, POLICY, ctx)
@@ -371,7 +432,7 @@ def _process_one(task: str, doc: str, raw, source: str, ctx: gate.RunContext, wo
     output = NOT_EXECUTED
     if decision.verdict == "ALLOW":  # the ONLY path to a tool
         try:
-            output = tools.execute(record)
+            output = tools.execute(record, summary_override=summary_override)
             executed = True
         except Exception as exc:
             output = f"Tool error: {exc}"
@@ -386,43 +447,106 @@ def _process_one(task: str, doc: str, raw, source: str, ctx: gate.RunContext, wo
 
 
 def _process(
-    task: str, doc: str, raw_calls: list, source: str, text: str = "", workspace_id: int = 1
+    task: str,
+    doc: str,
+    raw_calls: list,
+    source: str,
+    text: str = "",
+    workspace_id: int = 1,
+    hidden_text: str | None = None,
+    screening: ResumeScreening | None = None,
+    summary_override: str | None = None,
 ) -> RunResult:
     """Judge every proposed call in order with one shared RunContext; run tools only on ALLOW."""
     ctx = gate.RunContext()
     proposed, decisions, outputs, extras = [], [], [], []
-    hidden = insights.hidden_instructions(text)
+    hidden = hidden_text if hidden_text is not None else insights.hidden_instructions(text)
     for raw in raw_calls:
-        record, decision, output = _process_one(task, doc, raw, source, ctx, workspace_id)
+        record, decision, output = _process_one(
+            task, doc, raw, source, ctx, workspace_id, summary_override
+        )
         proposed.append(record)
         decisions.append(decision)
         outputs.append(output)
         extras.append(CallExtras(hidden_text=hidden, egress=insights.egress_preview(record, POLICY)))
-    return RunResult(proposed=proposed, decisions=decisions, outputs=outputs, extras=extras)
+    return RunResult(
+        proposed=proposed,
+        decisions=decisions,
+        outputs=outputs,
+        extras=extras,
+        screening=screening,
+    )
 
 
 @app.post("/api/run")
 def run_task(req: RunRequest, session: dict = Depends(auth.require_write_user)) -> RunResult:
+    from backend import extract, screening as resume_screening
+
     workspace_id = session["workspace_id"]
-    text = _read_doc(_resolve_doc(req.doc))
+    analysis = extract.analyze_document(_resolve_doc(req.doc, workspace_id))
+    text = analysis.text
+    hidden_findings = list(analysis.hidden_findings)
+    instruction_text = insights.hidden_instructions(text)
+    if instruction_text:
+        hidden_findings.append(f"Instruction-like text: {instruction_text[:500]}")
+    metadata_instructions = insights.hidden_instructions(analysis.metadata_text)
+    if metadata_instructions:
+        hidden_findings.append(f"Instruction-like document metadata: {metadata_instructions[:500]}")
+    hidden_findings = list(dict.fromkeys(hidden_findings))
+    hidden_text = "\n".join(hidden_findings) or None
+    report = (
+        resume_screening.screen_resume(text, hidden_findings)
+        if req.task == "summarise_resume"
+        else None
+    )
+    summary_override = f"Summary: {report.summary}" if report else None
     steps = _agent_steps()
 
     if steps == 1:
         # Demo-safe default: one-shot propose (same shape as before issue #8).
-        return _process(req.task, req.doc, _propose(req.task, text, req.doc), "run", text=text, workspace_id=workspace_id)
+        agent_mode = None
+        if req.doc.startswith("uploads/"):
+            raw_calls, agent_mode = _propose_upload(req.task, text, req.doc)
+        else:
+            raw_calls = _propose(req.task, text, req.doc)
+        result = _process(
+            req.task,
+            req.doc,
+            raw_calls,
+            "run",
+            text=text,
+            workspace_id=workspace_id,
+            hidden_text=hidden_text,
+            screening=report,
+            summary_override=summary_override,
+        )
+        result.agent_mode = agent_mode
+        return result
 
     # Multi-step: agent sees prior outputs; stop when it proposes nothing or hits the step cap.
     ctx = gate.RunContext()
     proposed, decisions, outputs, extras = [], [], [], []
-    hidden = insights.hidden_instructions(text)
+    hidden = hidden_text
     history: list[dict] = []
+    agent_mode = None
     for _ in range(steps):
-        batch = _propose(req.task, text, req.doc, history)
+        if req.doc.startswith("uploads/"):
+            batch, agent_mode = _propose_upload(req.task, text, req.doc, history)
+        else:
+            batch = _propose(req.task, text, req.doc, history)
         if not batch:
             break
         # One tool call per step keeps the chain readable (read → email).
         raw = batch[0]
-        record, decision, output = _process_one(req.task, req.doc, raw, "run", ctx, workspace_id)
+        record, decision, output = _process_one(
+            req.task,
+            req.doc,
+            raw,
+            "run",
+            ctx,
+            workspace_id,
+            summary_override,
+        )
         proposed.append(record)
         decisions.append(decision)
         outputs.append(output)
@@ -434,7 +558,14 @@ def run_task(req: RunRequest, session: dict = Depends(auth.require_write_user)) 
         )
         history.append({"call": call_dict, "output": output, "verdict": decision.verdict})
 
-    return RunResult(proposed=proposed, decisions=decisions, outputs=outputs, extras=extras)
+    return RunResult(
+        proposed=proposed,
+        decisions=decisions,
+        outputs=outputs,
+        extras=extras,
+        screening=report,
+        agent_mode=agent_mode,
+    )
 
 
 @app.post("/api/inject")
@@ -522,11 +653,34 @@ def decide_review(
 
 
 @app.post("/api/bench")
-def run_bench(_: dict = Depends(auth.require_write_user)) -> dict:
-    """Score data/bench_cases.yaml when present (#7). Empty list → zeroed totals until #7 lands."""
+def run_bench(
+    body: dict | None = Body(default=None),
+    _: dict = Depends(auth.require_write_user),
+) -> dict:
+    """Score data/bench_cases.yaml when present (#7). Empty list → zeroed totals until #7 lands.
+
+    Optional body: {"dataset": "default"|"eval"} — eval uses data/eval/cases.yaml.
+    """
     from backend import bench
 
-    return bench.run_bench()
+    dataset = "default"
+    if isinstance(body, dict) and body.get("dataset") in ("default", "eval"):
+        dataset = str(body["dataset"])
+    return bench.run_bench(dataset=dataset)
+
+
+@app.get("/api/bench/latest")
+def bench_latest(
+    dataset: str = "eval",
+    _: dict = Depends(auth.require_user),
+) -> dict:
+    """Return the newest eval results JSON from data/eval/results/ (no re-run)."""
+    from backend import bench
+
+    data = bench.latest_eval_result(dataset=dataset)
+    if data is None:
+        raise HTTPException(status_code=404, detail="no eval results yet")
+    return data
 
 
 @app.post("/api/redteam")
@@ -560,3 +714,24 @@ def get_policy(_: dict = Depends(auth.require_user)) -> dict:
 @app.get("/api/outbox")
 def get_outbox(session: dict = Depends(auth.require_user)) -> list[dict]:
     return db.list_outbox(session["workspace_id"])
+
+
+@app.get("/api/tests/latest")
+def tests_latest(_: dict = Depends(auth.require_user)) -> dict:
+    """Read-only: newest hand-written / suite report from scripts/test_report.py."""
+    path = Path(__file__).resolve().parents[1] / "data" / "eval" / "results" / "tests.json"
+    if not path.is_file():
+        raise HTTPException(status_code=404, detail="no test report yet; run python scripts/test_report.py")
+    return json.loads(path.read_text(encoding="utf-8"))
+
+
+@app.get("/api/tests/manual")
+def tests_manual(_: dict = Depends(auth.require_user)) -> list[dict]:
+    """Read-only: manual UI test matrix rows from tests/manual/test_matrix.csv."""
+    import csv
+
+    path = Path(__file__).resolve().parents[1] / "tests" / "manual" / "test_matrix.csv"
+    if not path.is_file():
+        raise HTTPException(status_code=404, detail="manual test matrix missing")
+    with path.open(encoding="utf-8", newline="") as f:
+        return list(csv.DictReader(f))

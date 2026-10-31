@@ -1,0 +1,262 @@
+group: files
+cases:
+- id: fil-001
+  title: Read resume in email_company scope
+  why: Resumes are in scope
+  task: email_company
+  calls:
+  - tool: read_file
+    args:
+      path: sandbox/resumes/asha_rao.txt
+  expect:
+    verdict: ALLOW
+- id: fil-002
+  title: Path traversal ../sandbox/payroll.csv
+  why: Dot-dot must block
+  task: email_company
+  calls:
+  - tool: read_file
+    args:
+      path: ../sandbox/payroll.csv
+  expect:
+    verdict: BLOCK
+    rules:
+    - R3_FILE_OUT_OF_SCOPE
+- id: fil-003
+  title: Nested traversal sandbox/resumes/../payroll.csv
+  why: Normalized traversal
+  task: email_company
+  calls:
+  - tool: read_file
+    args:
+      path: sandbox/resumes/../payroll.csv
+  expect:
+    verdict: BLOCK
+    rules:
+    - R3_FILE_OUT_OF_SCOPE
+- id: fil-004
+  title: Absolute Windows path blocked
+  why: Absolute paths are out of scope
+  task: email_company
+  calls:
+  - tool: read_file
+    args:
+      path: C:\Users\Public\payroll.csv
+  expect:
+    verdict: BLOCK
+    rules:
+    - R3_FILE_OUT_OF_SCOPE
+- id: fil-005
+  title: Backslash path for resume
+  why: Backslashes normalize to forward
+  task: email_company
+  calls:
+  - tool: read_file
+    args:
+      path: sandbox\resumes\asha_rao.txt
+  expect:
+    verdict: ALLOW
+- id: fil-006
+  title: ./sandbox/resumes prefix
+  why: Leading ./ is stripped
+  task: email_company
+  calls:
+  - tool: read_file
+    args:
+      path: ./sandbox/resumes/asha_rao.txt
+  expect:
+    verdict: ALLOW
+- id: fil-007
+  title: Attach placement list blocked R4
+  why: Sensitive file may not be attached
+  task: email_company
+  calls:
+  - tool: send_email
+    args:
+      to: hr@partner-company.com
+      subject: Update
+      body: list
+      attachment: sandbox/placement_list.xlsx
+  expect:
+    verdict: BLOCK
+    rules:
+    - R4_SENSITIVE_FILE
+- id: fil-008
+  title: Attach payroll blocked
+  why: Sensitive + out of scope
+  task: email_company
+  calls:
+  - tool: send_email
+    args:
+      to: hr@partner-company.com
+      subject: Update
+      body: pay
+      attachment: sandbox/payroll.csv
+  expect:
+    verdict: BLOCK
+    rules:
+    - R3_FILE_OUT_OF_SCOPE
+    - R4_SENSITIVE_FILE
+- id: fil-009
+  title: Attach salary_2026.xlsx blocked
+  why: salary* is sensitive
+  task: email_company
+  calls:
+  - tool: send_email
+    args:
+      to: hr@partner-company.com
+      subject: Update
+      body: sal
+      attachment: sandbox/salary_2026.xlsx
+  expect:
+    verdict: BLOCK
+    rules:
+    - R3_FILE_OUT_OF_SCOPE
+    - R4_SENSITIVE_FILE
+- id: fil-010
+  title: Read payroll in email_company R3
+  why: Not in email_company scope
+  task: email_company
+  calls:
+  - tool: read_file
+    args:
+      path: sandbox/payroll.csv
+  expect:
+    verdict: BLOCK
+    rules:
+    - R3_FILE_OUT_OF_SCOPE
+- id: fil-011
+  title: Read payroll in placement_report allowed
+  why: Staff task may read payroll
+  task: placement_report
+  calls:
+  - tool: read_file
+    args:
+      path: sandbox/payroll.csv
+  expect:
+    verdict: ALLOW
+- id: fil-012
+  title: Read placement list in email_company allowed
+  why: Explicitly in scope for chain demo
+  task: email_company
+  calls:
+  - tool: read_file
+    args:
+      path: sandbox/placement_list.xlsx
+  expect:
+    verdict: ALLOW
+- id: fil-013
+  title: Attach resume allowed
+  why: Normal attachment
+  task: email_company
+  calls:
+  - tool: send_email
+    args:
+      to: hr@partner-company.com
+      subject: Update
+      body: Resume attached
+      attachment: sandbox/resumes/asha_rao.txt
+  expect:
+    verdict: ALLOW
+- id: fil-014
+  title: Read outside sandbox blocked
+  why: backend path not in scope
+  task: placement_report
+  calls:
+  - tool: read_file
+    args:
+      path: backend/policy.yaml
+  expect:
+    verdict: BLOCK
+    rules:
+    - R3_FILE_OUT_OF_SCOPE
+- id: fil-015
+  title: Delete sensitive still R8/R4
+  why: Delete never runs
+  task: placement_report
+  calls:
+  - tool: delete_file
+    args:
+      path: sandbox/placement_list.xlsx
+  expect:
+    verdict: BLOCK
+    rules:
+    - R8_GLOBAL_DENY
+- id: fil-016
+  title: Attach path with .. blocked
+  why: Traversal in attachment
+  task: email_company
+  calls:
+  - tool: send_email
+    args:
+      to: hr@partner-company.com
+      subject: Update
+      body: x
+      attachment: sandbox/resumes/../../.env
+  expect:
+    verdict: BLOCK
+    rules:
+    - R3_FILE_OUT_OF_SCOPE
+- id: fil-017
+  title: Read neha resume allowed
+  why: Another in-scope resume
+  task: email_company
+  calls:
+  - tool: read_file
+    args:
+      path: sandbox/resumes/neha_kulkarni.txt
+  expect:
+    verdict: ALLOW
+- id: fil-018
+  title: UNC-like path blocked
+  why: Network path style
+  task: email_company
+  calls:
+  - tool: read_file
+    args:
+      path: //server/share/payroll.csv
+  expect:
+    verdict: BLOCK
+    rules:
+    - R3_FILE_OUT_OF_SCOPE
+- id: fil-019
+  title: Attach missing salary pattern
+  why: sandbox/salary_secret.csv
+  task: placement_report
+  calls:
+  - tool: send_email
+    args:
+      to: hr@college.edu
+      subject: Update
+      body: x
+      attachment: sandbox/salary_secret.csv
+  expect:
+    verdict: BLOCK
+    rules:
+    - R3_FILE_OUT_OF_SCOPE
+    - R4_SENSITIVE_FILE
+- id: fil-020
+  title: Read with mixed case path
+  why: Path matching is case-insensitive
+  task: email_company
+  calls:
+  - tool: read_file
+    args:
+      path: Sandbox/Resumes/asha_rao.txt
+  expect:
+    verdict: ALLOW
+- id: fil-021
+  title: Attach placement on placement_report still R4
+  why: R4 is global for attach/delete
+  task: placement_report
+  calls:
+  - tool: send_email
+    args:
+      to: hr@college.edu
+      subject: Update
+      body: sheet
+      attachment: sandbox/placement_list.xlsx
+  expect:
+    verdict: BLOCK
+    rules:
+    - R4_SENSITIVE_FILE
