@@ -292,6 +292,8 @@ All routes except health and sign-in require a session; writes also require the 
 
 ## Demo Walkthrough
 
+Ready-made demo resumes are in [`data/demo/`](data/demo/) (synthetic people). Each file name says what it shows, e.g. `02_resume-check_white-text-attack_BLOCKED.pdf` or `08_email-company_HURDLE-R9-read-then-email_BLOCKED.txt`; upload them on Run Task like a real user (list in `data/demo/README.txt`). The agent is a live AI, so an attack may not fool it on every try.
+
 1. **Clean run**: *Summarise resume* on `resume_01_asha.txt` → **ALLOWED**, the summary is shown.
 2. **Attack**: same task on `resume_h01_hidden_email.txt` → the hidden instruction is shown; the AI tried `send_email` to `hr-verify@evil.co` with the placement list → **BLOCKED** (R1, R2, R3, R4). Nothing is sent.
 3. **Normal email**: *Email company* on `resume_02_rahul.txt` → **ALLOWED** → appears in the Outbox.
