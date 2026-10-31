@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { toast } from 'sonner'
-import { Bot, CircleCheck, ClipboardCheck, Globe, RefreshCw, ScrollText, RotateCcw, ShieldCheck, ShieldX, Swords, TriangleAlert, Zap } from 'lucide-react'
+import { Bot, CircleCheck, ClipboardCheck, Compass, Globe, RefreshCw, ScrollText, RotateCcw, ShieldCheck, ShieldX, Swords, TriangleAlert, Zap } from 'lucide-react'
 
 import type { RunResult, Verdict } from '@/types'
 import { api, ApiError, USE_MOCK, type ApiBench, type ApiRedTeam } from '@/api'
@@ -14,6 +14,7 @@ import { CornerMarks } from '@/components/CornerMarks'
 import { DocTypeBadge } from '@/components/DocTypeBadge'
 import { EmptyState } from '@/components/EmptyState'
 import { EvalPanel } from '@/components/EvalPanel'
+import { ATTACK_BENCH_TOUR, useTour } from '@/components/OnboardingTour'
 import { PageHeader } from '@/components/PageHeader'
 import { StatCard } from '@/components/StatCard'
 import { TestResultsPanel } from '@/components/TestResultsPanel'
@@ -48,28 +49,38 @@ function mockBench(): ApiBench {
 }
 
 export function AttackBench() {
+  const startTour = useTour('attack-bench', ATTACK_BENCH_TOUR)
   return (
     <div className="flex flex-col gap-6">
-      <PageHeader title="Attack Bench" description="Score the gate on clean and hostile cases, or fire a single attack at it." />
+      <PageHeader
+        title="Attack Bench"
+        description="Score the gate on clean and hostile cases, or fire a single attack at it."
+        actions={
+          <Button variant="outline" size="sm" onClick={startTour}>
+            <Compass aria-hidden />
+            Take the tour
+          </Button>
+        }
+      />
       <Tabs defaultValue="bench" className="gap-6">
         <TabsList>
-          <TabsTrigger value="bench">
+          <TabsTrigger value="bench" data-tour="tab-bench">
             <Zap aria-hidden />
             Bench
           </TabsTrigger>
-          <TabsTrigger value="redteam">
+          <TabsTrigger value="redteam" data-tour="tab-redteam">
             <Bot aria-hidden />
             Red team
           </TabsTrigger>
-          <TabsTrigger value="eval">
+          <TabsTrigger value="eval" data-tour="tab-eval">
             <Globe aria-hidden />
             Real-world eval
           </TabsTrigger>
-          <TabsTrigger value="tests">
+          <TabsTrigger value="tests" data-tour="tab-tests">
             <ClipboardCheck aria-hidden />
             Test results
           </TabsTrigger>
-          <TabsTrigger value="attack">
+          <TabsTrigger value="attack" data-tour="tab-attack">
             <Swords aria-hidden />
             Try an attack
           </TabsTrigger>

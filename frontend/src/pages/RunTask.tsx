@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState, type ChangeEvent, type CSSProperties, type DragEvent, type ReactNode } from 'react'
 import { toast } from 'sonner'
-import { CircleCheck, FileLock, Inbox, Play, RotateCcw, ScrollText, Send, ShieldCheck, ShieldX, TriangleAlert, Upload, UserCheck } from 'lucide-react'
+import { Compass, CircleCheck, FileLock, Inbox, Play, RotateCcw, ScrollText, Send, ShieldCheck, ShieldX, TriangleAlert, Upload, UserCheck } from 'lucide-react'
 
 import type { RunResult, TaskId, ToolCall, Verdict } from '@/types'
 import { api, USE_MOCK } from '@/api'
@@ -16,6 +16,7 @@ import { DocTypeBadge } from '@/components/DocTypeBadge'
 import { CornerMarks } from '@/components/CornerMarks'
 import { IdleArtwork } from '@/components/IdleArtwork'
 import { AllowlistCard } from '@/components/AllowlistCard'
+import { EMAIL_TOUR, RUN_TASK_TOUR, useTour } from '@/components/OnboardingTour'
 import { EgressPreview } from '@/components/EgressPreview'
 import { EmailComposer } from '@/components/EmailComposer'
 import { PageHeader } from '@/components/PageHeader'
@@ -48,6 +49,10 @@ interface RunTaskProps {
 export function RunTask({ onOpenReviewQueue, onOpenLog }: RunTaskProps) {
   const { state, updateRunSession, startRun } = useStore()
   const { task, documents, selected, phase } = state.runSession
+  // Each mode has its own tour, shown the first time the user is in it; the button replays the current one.
+  const startRunTour = useTour('run-task', RUN_TASK_TOUR, task !== 'email_company')
+  const startEmailTour = useTour('email', EMAIL_TOUR, task === 'email_company')
+  const startTour = task === 'email_company' ? startEmailTour : startRunTour
   const [rulesOpen, setRulesOpen] = useState(false)
   const [uploading, setUploading] = useState(false)
   const [draggingFile, setDraggingFile] = useState(false)
@@ -127,7 +132,16 @@ export function RunTask({ onOpenReviewQueue, onOpenLog }: RunTaskProps) {
 
   return (
     <div className="flex flex-col gap-6">
-      <PageHeader title="Run Task" description="Pick a task and a document. The AI proposes actions, the gate decides." />
+      <PageHeader
+        title="Run Task"
+        description="Pick a task and a document. The AI proposes actions, the gate decides."
+        actions={
+          <Button variant="outline" size="sm" onClick={startTour}>
+            <Compass aria-hidden />
+            Take the tour
+          </Button>
+        }
+      />
 
       <div className="grid grid-cols-1 items-start gap-6 xl:grid-cols-[var(--spacing-input-column)_minmax(0,1fr)]">
         {/* ------------------------------ Input ------------------------------ */}
@@ -153,7 +167,7 @@ export function RunTask({ onOpenReviewQueue, onOpenLog }: RunTaskProps) {
               </Select>
             </div>
 
-            <div className="flex flex-col gap-2">
+            <div className="flex flex-col gap-2" data-tour="documents">
               <Label id="doc-label">Document</Label>
               {documents.length === 0 && (
                 <p className="text-muted-foreground rounded-lg border border-dashed px-3 py-4 text-sm">
@@ -182,6 +196,7 @@ export function RunTask({ onOpenReviewQueue, onOpenLog }: RunTaskProps) {
 
             <div className="flex flex-col gap-3">
               <div
+                data-tour="upload"
                 onDragOver={(e) => {
                   e.preventDefault()
                   setDraggingFile(true)
@@ -213,15 +228,17 @@ export function RunTask({ onOpenReviewQueue, onOpenLog }: RunTaskProps) {
               </div>
               {task === 'email_company' ? (
                 // Email company works as draft -> edit -> send on the right; here: which companies are allowed.
-                <AllowlistCard />
+                <div data-tour="allowlist">
+                  <AllowlistCard />
+                </div>
               ) : (
-                <Button className="w-full" size="lg" onClick={() => start('run')} disabled={busy || uploading || documents.length === 0}>
+                <Button data-tour="run" className="w-full" size="lg" onClick={() => start('run')} disabled={busy || uploading || documents.length === 0}>
                   {busy ? <RotateCcw aria-hidden className="animate-spin motion-reduce:animate-none" /> : <Play aria-hidden />}
                   {busy ? 'Running…' : 'Run'}
                   {!busy && <kbd className="bg-primary-foreground/15 ml-1 hidden rounded px-1.5 py-0.5 font-mono text-2xs font-medium sm:inline">Ctrl ↵</kbd>}
                 </Button>
               )}
-              <Button variant="link" className="h-auto self-start px-0" onClick={() => setRulesOpen(true)}>
+              <Button data-tour="rules" variant="link" className="h-auto self-start px-0" onClick={() => setRulesOpen(true)}>
                 <FileLock aria-hidden />
                 View rules for this task
               </Button>
