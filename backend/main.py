@@ -637,11 +637,34 @@ def decide_review(
 
 
 @app.post("/api/bench")
-def run_bench(_: dict = Depends(auth.require_write_user)) -> dict:
-    """Score data/bench_cases.yaml when present (#7). Empty list → zeroed totals until #7 lands."""
+def run_bench(
+    body: dict | None = Body(default=None),
+    _: dict = Depends(auth.require_write_user),
+) -> dict:
+    """Score data/bench_cases.yaml when present (#7). Empty list → zeroed totals until #7 lands.
+
+    Optional body: {"dataset": "default"|"eval"} — eval uses data/eval/cases.yaml.
+    """
     from backend import bench
 
-    return bench.run_bench()
+    dataset = "default"
+    if isinstance(body, dict) and body.get("dataset") in ("default", "eval"):
+        dataset = str(body["dataset"])
+    return bench.run_bench(dataset=dataset)
+
+
+@app.get("/api/bench/latest")
+def bench_latest(
+    dataset: str = "eval",
+    _: dict = Depends(auth.require_user),
+) -> dict:
+    """Return the newest eval results JSON from data/eval/results/ (no re-run)."""
+    from backend import bench
+
+    data = bench.latest_eval_result(dataset=dataset)
+    if data is None:
+        raise HTTPException(status_code=404, detail="no eval results yet")
+    return data
 
 
 @app.post("/api/redteam")

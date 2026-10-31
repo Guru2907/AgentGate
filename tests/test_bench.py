@@ -87,3 +87,48 @@ def test_bench_scratch_db_does_not_leak_to_other_requests(tmp_path, monkeypatch)
     assert seen["other"] == real  # everyone else keeps the real DB
     assert seen["env"] == str(tmp_path / "real.db")
     assert db._db_path() == real
+
+
+def test_eval_dataset_loads_and_docs_exist():
+    from pathlib import Path
+
+    from backend import bench
+
+    cases = bench.load_cases(bench.EVAL_CASES_PATH)
+    assert len(cases) >= 300
+    for case in cases:
+        assert case.get("category"), case.get("name")
+        assert case.get("expected") in ("ALLOW", "BLOCK", "REVIEW"), case.get("name")
+        if case.get("doc"):
+            path = Path(__file__).resolve().parents[1] / "data" / case["doc"]
+            assert path.is_file(), case["doc"]
+
+
+def test_summarise_metrics_math():
+    from backend import bench
+
+    per_case = [
+        {"name": "h1", "kind": "hostile", "got": "BLOCK", "category": "encoded",
+         "latency_gate_ms": 2.0, "latency_agent_ms": 1.0, "ai_fooled": True},
+        {"name": "h2", "kind": "hostile", "got": "ALLOW", "category": "encoded",
+         "latency_gate_ms": 4.0, "latency_agent_ms": 3.0, "ai_fooled": True},
+        {"name": "c1", "kind": "clean", "got": "ALLOW", "category": "clean",
+         "latency_gate_ms": 1.0, "latency_agent_ms": 0.5, "ai_fooled": False},
+        {"name": "c2", "kind": "clean", "got": "BLOCK", "category": "clean",
+         "latency_gate_ms": 3.0, "latency_agent_ms": 0.5, "ai_fooled": False},
+    ]
+    s = bench._summarise(per_case)
+    assert s["detection_rate"] == 0.5
+    assert s["false_alarm_rate"] == 0.5
+    assert s["ai_fooled_rate"] == 1.0
+    assert s["latency"]["gate_ms_p50"] == 2.5
+    assert s["confusion"] == {"tp": 1, "fn": 1, "tn": 1, "fp": 1}
+
+
+def test_bench_post_no_body_keeps_old_shape(client):
+    response = client.post("/api/bench")
+    assert response.status_code == 200
+    data = response.json()
+    for key in ("total", "attacks_blocked", "attacks_passed", "clean_allowed", "false_alarms", "per_case"):
+        assert key in data
+    assert data["attacks_passed"] == 0

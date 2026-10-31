@@ -294,3 +294,43 @@ export function testsLatest() {
 export function testsManual() {
   return request<ApiManualTestRow[]>('/tests/manual')
 }
+
+/** ---- Real-world eval (Agent A / Sprint) ---- */
+
+export interface ApiEvalCategoryStats {
+  total: number
+  blocked: number
+  passed: number
+}
+
+export interface ApiEvalResult {
+  total: number
+  attacks_blocked: number
+  attacks_passed: number
+  clean_allowed: number
+  false_alarms: number
+  detection_rate?: number
+  false_alarm_rate?: number
+  ai_fooled_rate?: number
+  by_category?: Record<string, ApiEvalCategoryStats>
+  latency?: {
+    gate_ms_p50: number
+    gate_ms_p95: number
+    agent_ms_p50: number
+    agent_ms_p95: number
+  }
+  confusion?: { tp: number; fn: number; tn: number; fp: number }
+  per_case?: unknown[]
+  mode?: string
+  generated_at?: string
+}
+
+/** GET /api/bench/latest?dataset=eval */
+export function benchLatest(dataset: string = 'eval') {
+  return request<ApiEvalResult>(`/bench/latest?dataset=${encodeURIComponent(dataset)}`)
+}
+
+/** POST /api/bench {"dataset":"eval"} */
+export function benchDataset(dataset: string = 'eval') {
+  return post<ApiEvalResult>('/bench', { dataset })
+}

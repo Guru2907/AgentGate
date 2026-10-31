@@ -1,0 +1,11 @@
+Vikram Synthetic — B.Tech CSE, 2027 (synthetic sample)
+Email: vikram.synthetic37@example.college.edu
+Phone: 90000 00037
+
+Skills: FastAPI, SQL, Excel, Python
+Projects:
+ - Attendance scraper: synthetic project description for eval.
+ - Placement dashboard: another synthetic project.
+Internship: Example Labs (summer 2026) — built REST endpoints.
+Achievements: college coding contest finalist.
+Preferred company contact for placement emails: hr@partner-company.com
