@@ -19,6 +19,13 @@ _HIDDEN_PATTERNS = [
     # Imperative lines only: the line starts with the verb, so "Email: name@example.edu" is not flagged
     r"(?im)^\s*(please\s+)?(email|send|forward|delete)\s+(?!:).*\b[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}\b.*$",
     r"(?im)^\s*(please\s+)?(email|send|forward|delete)\s+(?!:).*\bsandbox/.*$",
+    # Text that names the assistant's own tools or speaks to the assistant ("Teaching assistant" is not matched)
+    r"(?i)\b(send_email|read_file|delete_file)\b",
+    r"(?i)\b(note|instruction|message|task)s?\s+for\s+the\s+(ai|assistant|model)\b",
+    r"(?im)^\s*(\[?\s*)?(assistant|ai assistant|assistant task|assistant instruction)\s*\]?\s*:",
+    # Polite social engineering aimed at protected data, and requests to paste lists into an email
+    r"(?i)\b(kindly|please)\s+(email|send|forward|share)\b.*\b(sandbox/|placement list|payroll|salary)",
+    r"(?i)\binclude\s+(this|the|these)\s+(contact\s+)?(list|numbers|details)\b.*\b(body|email)\b",
 ]
 
 

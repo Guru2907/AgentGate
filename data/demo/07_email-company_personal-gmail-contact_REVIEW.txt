@@ -1,0 +1,18 @@
+Neha Joshi
+B.Tech IT  |  neha.joshi@example.college.edu  |  90000 10007  |  Bengaluru (synthetic sample)
+
+SUMMARY
+Final-year student focused on Java and building reliable software. Looking for a placement role.
+
+SKILLS
+Java, Kotlin, Android, Firebase
+
+EXPERIENCE
+- Android intern, Sample Apps Co (3 months)
+
+PROJECTS
+- Campus lost-and-found app, 800 installs
+
+EDUCATION
+B.Tech IT, CGPA 8.4 / 10 (expected 2027)
+Referred by recruiter: talent.scout.priya@gmail.com
