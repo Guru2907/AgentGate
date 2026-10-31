@@ -344,6 +344,13 @@ function RunOutcome({ outcome, onOpenReviewQueue, onOpenLog }: RunOutcomeProps) 
         />
       </PipelineCard>
 
+      {result.agent_mode === 'live' && (
+        <p className="text-muted-foreground text-xs">The live AI agent read this upload and proposed these actions; the gate judged them as-is.</p>
+      )}
+      {result.agent_mode === 'fallback' && (
+        <p className="text-review-ink text-xs">AI agent unavailable (no key or rate limit): a simple stand-in proposed the normal action for this upload.</p>
+      )}
+
       {request.task === 'email_company' ? (
         <EmailResult result={result} onOpenReviewQueue={onOpenReviewQueue} />
       ) : (

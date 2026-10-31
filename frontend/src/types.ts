@@ -33,6 +33,8 @@ export interface RunResult {
   /** Per-call insight from the backend (hidden text in the document, what an email would take out). */
   extras?: CallExtras[]
   screening?: ResumeScreening | null
+  /** Uploads: 'live' = the real AI agent proposed these calls; 'fallback' = AI unavailable, a stand-in did. */
+  agent_mode?: 'live' | 'fallback' | null
 } // same index = same call; blocked output = "(not executed)"
 
 export interface ResumeScreening {
