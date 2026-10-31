@@ -6,6 +6,16 @@ import { Button } from '@/components/ui/button'
 import { scrollToSection } from '@/lib/scroll'
 import { useAuth } from '@/state/auth'
 
+// The scaled artwork must not show its rectangle: fade all four edges into the page background.
+const EDGE_X = 'linear-gradient(to right, transparent 0%, #000 12%, #000 88%, transparent 100%)'
+const EDGE_Y = 'linear-gradient(to bottom, transparent 0, transparent 7rem, #000 15rem, #000 82%, transparent 100%)'
+const HERO_EDGE_FADE: CSSProperties = {
+  maskImage: `${EDGE_X}, ${EDGE_Y}`,
+  maskComposite: 'intersect',
+  WebkitMaskImage: `${EDGE_X}, ${EDGE_Y}`,
+  WebkitMaskComposite: 'source-in',
+}
+
 export function Hero({
   onOpenWorkspace,
   onSignIn,
@@ -20,35 +30,38 @@ export function Hero({
 
   return (
     <section aria-label="Introduction" className="@container relative isolate flex h-screen min-h-[44rem] flex-col overflow-hidden">
-      {/* Artwork: slow float so the gate scene feels alive under the copy. */}
-      <img
-        src={heroArt}
-        alt=""
-        aria-hidden
-        className="ag-hero-art absolute inset-x-0 bottom-0 -z-20 h-[calc(100%-8rem)] w-full object-cover object-bottom"
-      />
-      {/* Dual ambient rings behind the crystal (violet / orange split). */}
-      <div
-        aria-hidden
-        className="ag-ambient pointer-events-none absolute bottom-[max(calc((100%-8rem)*0.317),17.8cqw)] left-1/2 -z-10 size-[clamp(16rem,26cqw,26rem)] rounded-full"
-      />
-      <div
-        aria-hidden
-        className="ag-ambient-outer pointer-events-none absolute bottom-[max(calc((100%-8rem)*0.28),14cqw)] left-1/2 -z-10 size-[clamp(22rem,34cqw,34rem)] rounded-full"
-      />
-      {/* Soft drifting sparks — brand colors only, decorative. */}
-      <div aria-hidden className="ag-hero-sparks pointer-events-none absolute inset-0 -z-10">
-        <span className="ag-spark ag-spark-a" />
-        <span className="ag-spark ag-spark-b" />
-        <span className="ag-spark ag-spark-c" />
-        <span className="ag-spark ag-spark-d" />
-        <span className="ag-spark ag-spark-e" />
+      {/* Art, glow and sparks scale as one, so they stay aligned; the smaller scene leaves room for the buttons below the cube. */}
+      <div aria-hidden className="pointer-events-none absolute inset-0 -z-10 origin-[50%_32%] scale-[0.8] sm:scale-[0.82]" style={HERO_EDGE_FADE}>
+        {/* Artwork: slow float so the gate scene feels alive under the copy. */}
+        <img
+          src={heroArt}
+          alt=""
+          aria-hidden
+          className="ag-hero-art absolute inset-x-0 bottom-0 -z-20 h-[calc(100%-8rem)] w-full object-cover object-bottom"
+        />
+        {/* Dual ambient rings behind the crystal (violet / orange split). */}
+        <div
+          aria-hidden
+          className="ag-ambient pointer-events-none absolute bottom-[max(calc((100%-8rem)*0.317),17.8cqw)] left-1/2 -z-10 size-[clamp(16rem,26cqw,26rem)] rounded-full"
+        />
+        <div
+          aria-hidden
+          className="ag-ambient-outer pointer-events-none absolute bottom-[max(calc((100%-8rem)*0.28),14cqw)] left-1/2 -z-10 size-[clamp(22rem,34cqw,34rem)] rounded-full"
+        />
+        {/* Soft drifting sparks — brand colors only, decorative. */}
+        <div aria-hidden className="ag-hero-sparks pointer-events-none absolute inset-0 -z-10">
+          <span className="ag-spark ag-spark-a" />
+          <span className="ag-spark ag-spark-b" />
+          <span className="ag-spark ag-spark-c" />
+          <span className="ag-spark ag-spark-d" />
+          <span className="ag-spark ag-spark-e" />
+        </div>
       </div>
       {/* Top-to-transparent fade keeps the headline area clean. */}
       <div aria-hidden className="from-background via-background/80 absolute inset-x-0 top-0 -z-10 h-[55%] bg-gradient-to-b to-transparent" />
 
-      {/* Top padding clears the sticky navbar that overlaps the hero. */}
-      <div className="relative z-0 flex flex-col items-center px-6 pt-[calc(5.5rem+clamp(1.5rem,5vh,3.5rem))] text-center">
+      {/* Headline and subtitle above the cube. Top padding clears the sticky navbar that overlaps the hero. */}
+      <div className="relative z-0 flex flex-col items-center px-6 pt-[calc(4.75rem+clamp(0.75rem,3vh,2.5rem))] text-center">
         <h1 className="text-[clamp(2.5rem,5.6cqw,5rem)] leading-[1.05] font-light tracking-[-0.03em]">
           <span className="ag-hero-line title-fade" style={{ '--ag-i': 0 } as CSSProperties}>
             The AI can be fooled.
@@ -59,12 +72,16 @@ export function Hero({
           </span>
         </h1>
         <p
-          className="ag-fade-up ag-hero-sub text-muted-foreground mt-6 max-w-[36rem] font-mono text-sm tracking-[0.15em] text-balance"
+          className="ag-fade-up ag-hero-sub text-muted-foreground mt-4 max-w-[36rem] font-mono text-sm tracking-[0.15em] text-balance"
           style={{ '--ag-i': 2 } as CSSProperties}
         >
           A security layer between AI decisions and real-world actions.
         </p>
-        <div className="ag-fade-up mt-8 flex flex-col items-center gap-3 sm:flex-row" style={{ '--ag-i': 4 } as CSSProperties}>
+      </div>
+
+      {/* Buttons sit below the gate cube. */}
+      <div className="absolute inset-x-0 bottom-[clamp(1.25rem,4.5vh,2.75rem)] z-10 flex flex-col items-center px-6 text-center">
+        <div className="ag-fade-up flex flex-col items-center gap-3 sm:flex-row" style={{ '--ag-i': 4 } as CSSProperties}>
           <Button size="lg" className="ag-cta-glow h-12 px-7 text-base" onClick={onOpenWorkspace}>
             <Play aria-hidden />
             Open workspace
@@ -100,17 +117,6 @@ export function Hero({
           </button>
         </p>
       </div>
-
-      {/* Scroll cue toward How it works. */}
-      <button
-        type="button"
-        aria-label="Scroll to how it works"
-        onClick={() => scrollToSection('how-it-works')}
-        className="ag-scroll-cue text-muted-foreground hover:text-foreground absolute bottom-6 left-1/2 z-10 flex -translate-x-1/2 flex-col items-center gap-1 transition-colors"
-      >
-        <span className="font-mono text-2xs tracking-[0.18em] uppercase">Scroll</span>
-        <ArrowDown aria-hidden className="size-4" />
-      </button>
     </section>
   )
 }
