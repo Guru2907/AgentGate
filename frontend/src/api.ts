@@ -227,3 +227,56 @@ export const api = {
       post<{ ok: boolean }>('/auth/password-reset/confirm', body),
   },
 }
+
+/** Sprint C — hand-written test report + manual matrix (append-only). */
+export interface ApiTestsHandwrittenGroup {
+  total: number
+  passed: number
+}
+
+export interface ApiTestsGap {
+  id: string
+  title: string
+  note: string
+  group?: string
+}
+
+export interface ApiTestsLatest {
+  generated_at: string
+  total: number
+  passed: number
+  failed: number
+  xfailed: number
+  skipped?: number
+  handwritten: {
+    total: number
+    passed: number
+    failed?: number
+    known_gaps: number
+    by_group: Record<string, ApiTestsHandwrittenGroup>
+    gaps: ApiTestsGap[]
+  }
+  by_file: Record<string, number>
+}
+
+export interface ApiManualTestRow {
+  id: string
+  area: string
+  scenario: string
+  steps: string
+  expected: string
+  actual: string
+  result: string
+  tester: string
+  date: string
+}
+
+/** GET /api/tests/latest */
+export function testsLatest() {
+  return request<ApiTestsLatest>('/tests/latest')
+}
+
+/** GET /api/tests/manual */
+export function testsManual() {
+  return request<ApiManualTestRow[]>('/tests/manual')
+}
