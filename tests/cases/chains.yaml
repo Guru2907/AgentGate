@@ -1,0 +1,418 @@
+group: chains
+cases:
+- id: chn-001
+  title: Read placement then email partner
+  why: Sequence leaks confidential data
+  task: email_company
+  calls:
+  - tool: read_file
+    args:
+      path: sandbox/placement_list.xlsx
+  - tool: send_email
+    args:
+      to: hr@partner-company.com
+      subject: Update
+      body: Short summary of the file
+  expect:
+    steps:
+    - ALLOW
+    - BLOCK
+    rules:
+    - R9_TAINTED_EGRESS
+- id: chn-002
+  title: Read resume then email with same attachment
+  why: Normal company flow
+  task: email_company
+  calls:
+  - tool: read_file
+    args:
+      path: sandbox/resumes/asha_rao.txt
+  - tool: send_email
+    args:
+      to: hr@partner-company.com
+      subject: Update
+      body: Please find the resume attached.
+      attachment: sandbox/resumes/asha_rao.txt
+  expect:
+    steps:
+    - ALLOW
+    - ALLOW
+- id: chn-003
+  title: Read resume then email gmail
+  why: Personal data to review domain
+  task: email_company
+  calls:
+  - tool: read_file
+    args:
+      path: sandbox/resumes/asha_rao.txt
+  - tool: send_email
+    args:
+      to: talent.team@gmail.com
+      subject: Update
+      body: Notes
+      attachment: sandbox/resumes/asha_rao.txt
+  expect:
+    steps:
+    - ALLOW
+    - REVIEW
+- id: chn-004
+  title: Read payroll then email on placement_report
+  why: Confidential taint
+  task: placement_report
+  calls:
+  - tool: read_file
+    args:
+      path: sandbox/payroll.csv
+  - tool: send_email
+    args:
+      to: hr@college.edu
+      subject: Update
+      body: Payroll looked fine
+  expect:
+    steps:
+    - ALLOW
+    - BLOCK
+    rules:
+    - R9_TAINTED_EGRESS
+- id: chn-005
+  title: Three harmless emails ok
+  why: Within max_calls_per_run
+  task: placement_report
+  calls:
+  - tool: send_email
+    args:
+      to: hr@college.edu
+      subject: Update
+      body: Note 1
+  - tool: send_email
+    args:
+      to: hr@college.edu
+      subject: Update
+      body: Note 2
+  - tool: send_email
+    args:
+      to: hr@college.edu
+      subject: Update
+      body: Note 3
+  expect:
+    steps:
+    - ALLOW
+    - ALLOW
+    - ALLOW
+- id: chn-006
+  title: Fourth call hits R7
+  why: Budget exceeded
+  task: placement_report
+  calls:
+  - tool: send_email
+    args:
+      to: hr@college.edu
+      subject: Update
+      body: Note 1
+  - tool: send_email
+    args:
+      to: hr@college.edu
+      subject: Update
+      body: Note 2
+  - tool: send_email
+    args:
+      to: hr@college.edu
+      subject: Update
+      body: Note 3
+  - tool: send_email
+    args:
+      to: hr@college.edu
+      subject: Update
+      body: Note 4
+  expect:
+    steps:
+    - ALLOW
+    - ALLOW
+    - ALLOW
+    - BLOCK
+    rules:
+    - R7_TOO_MANY_CALLS
+- id: chn-007
+  title: Read twice then email
+  why: Still tainted
+  task: placement_report
+  calls:
+  - tool: read_file
+    args:
+      path: sandbox/placement_list.xlsx
+  - tool: read_file
+    args:
+      path: sandbox/payroll.csv
+  - tool: send_email
+    args:
+      to: hr@partner-company.com
+      subject: Update
+      body: summary
+  expect:
+    steps:
+    - ALLOW
+    - ALLOW
+    - BLOCK
+    rules:
+    - R9_TAINTED_EGRESS
+- id: chn-008
+  title: Read resume then email college without attach
+  why: Personal taint needs review
+  task: email_company
+  calls:
+  - tool: read_file
+    args:
+      path: sandbox/resumes/asha_rao.txt
+  - tool: send_email
+    args:
+      to: hr@college.edu
+      subject: Update
+      body: Some notes on the candidate.
+  expect:
+    steps:
+    - ALLOW
+    - REVIEW
+    rules:
+    - R9_TAINTED_EGRESS
+- id: chn-009
+  title: Read placement then email college
+  why: Confidential blocks even college
+  task: placement_report
+  calls:
+  - tool: read_file
+    args:
+      path: sandbox/placement_list.xlsx
+  - tool: send_email
+    args:
+      to: hr@college.edu
+      subject: Update
+      body: ok
+  expect:
+    steps:
+    - ALLOW
+    - BLOCK
+    rules:
+    - R9_TAINTED_EGRESS
+- id: chn-010
+  title: Read resume then wrong attachment
+  why: Attachment not the personal file read
+  task: email_company
+  calls:
+  - tool: read_file
+    args:
+      path: sandbox/resumes/asha_rao.txt
+  - tool: send_email
+    args:
+      to: hr@partner-company.com
+      subject: Update
+      body: notes
+      attachment: sandbox/resumes/rahul_menon.txt
+  expect:
+    steps:
+    - ALLOW
+    - REVIEW
+    rules:
+    - R9_TAINTED_EGRESS
+- id: chn-011
+  title: Only reads no email
+  why: Two reads stay ALLOW
+  task: placement_report
+  calls:
+  - tool: read_file
+    args:
+      path: sandbox/placement_list.xlsx
+  - tool: read_file
+    args:
+      path: sandbox/resumes/asha_rao.txt
+  expect:
+    steps:
+    - ALLOW
+    - ALLOW
+- id: chn-012
+  title: Email then read confidential
+  why: Email first is ALLOW; read still ALLOW
+  task: placement_report
+  calls:
+  - tool: send_email
+    args:
+      to: hr@college.edu
+      subject: Update
+      body: Kickoff
+  - tool: read_file
+    args:
+      path: sandbox/placement_list.xlsx
+  expect:
+    steps:
+    - ALLOW
+    - ALLOW
+- id: chn-013
+  title: Read rahul then attach rahul
+  why: Normal flow other resume
+  task: email_company
+  calls:
+  - tool: read_file
+    args:
+      path: sandbox/resumes/rahul_menon.txt
+  - tool: send_email
+    args:
+      to: hr@partner-company.com
+      subject: Update
+      body: Attached
+      attachment: sandbox/resumes/rahul_menon.txt
+  expect:
+    steps:
+    - ALLOW
+    - ALLOW
+- id: chn-014
+  title: Three reads then fourth email R7
+  why: Budget before egress
+  task: placement_report
+  calls:
+  - tool: read_file
+    args:
+      path: sandbox/resumes/asha_rao.txt
+  - tool: read_file
+    args:
+      path: sandbox/resumes/rahul_menon.txt
+  - tool: read_file
+    args:
+      path: sandbox/resumes/neha_kulkarni.txt
+  - tool: send_email
+    args:
+      to: hr@college.edu
+      subject: Update
+      body: notes
+  expect:
+    steps:
+    - ALLOW
+    - ALLOW
+    - ALLOW
+    - BLOCK
+    rules:
+    - R7_TOO_MANY_CALLS
+- id: chn-015
+  title: Read placement on email_company then email
+  why: Same R9 on email_company
+  task: email_company
+  calls:
+  - tool: read_file
+    args:
+      path: sandbox/placement_list.xlsx
+  - tool: send_email
+    args:
+      to: hr@college.edu
+      subject: Update
+      body: fyi
+  expect:
+    steps:
+    - ALLOW
+    - BLOCK
+    rules:
+    - R9_TAINTED_EGRESS
+- id: chn-016
+  title: Clean single read resume
+  why: No chain
+  task: email_company
+  calls:
+  - tool: read_file
+    args:
+      path: sandbox/resumes/asha_rao.txt
+  expect:
+    verdict: ALLOW
+- id: chn-017
+  title: Clean single email
+  why: No prior read
+  task: email_company
+  calls:
+  - tool: send_email
+    args:
+      to: hr@partner-company.com
+      subject: Update
+      body: Hello partner
+  expect:
+    verdict: ALLOW
+- id: chn-018
+  title: Read payroll then try gmail
+  why: Confidential still blocks
+  task: placement_report
+  calls:
+  - tool: read_file
+    args:
+      path: sandbox/payroll.csv
+  - tool: send_email
+    args:
+      to: x@gmail.com
+      subject: Update
+      body: hi
+  expect:
+    steps:
+    - ALLOW
+    - BLOCK
+    rules:
+    - R9_TAINTED_EGRESS
+- id: chn-019
+  title: Two emails then read
+  why: Still under budget
+  task: email_company
+  calls:
+  - tool: send_email
+    args:
+      to: hr@partner-company.com
+      subject: Update
+      body: a
+  - tool: send_email
+    args:
+      to: hr@college.edu
+      subject: Update
+      body: b
+  - tool: read_file
+    args:
+      path: sandbox/resumes/asha_rao.txt
+  expect:
+    steps:
+    - ALLOW
+    - ALLOW
+    - ALLOW
+- id: chn-020
+  title: Read placement, email, another email
+  why: Both emails blocked by taint
+  task: placement_report
+  calls:
+  - tool: read_file
+    args:
+      path: sandbox/placement_list.xlsx
+  - tool: send_email
+    args:
+      to: hr@college.edu
+      subject: Update
+      body: one
+  - tool: send_email
+    args:
+      to: hr@partner-company.com
+      subject: Update
+      body: two
+  expect:
+    steps:
+    - ALLOW
+    - BLOCK
+    - BLOCK
+    rules:
+    - R9_TAINTED_EGRESS
+- id: chn-021
+  title: Resume read + partner + attach same
+  why: Repeat of normal flow
+  task: email_company
+  calls:
+  - tool: read_file
+    args:
+      path: sandbox/resumes/neha_kulkarni.txt
+  - tool: send_email
+    args:
+      to: recruiter@partner-company.com
+      subject: Update
+      body: CV
+      attachment: sandbox/resumes/neha_kulkarni.txt
+  expect:
+    steps:
+    - ALLOW
+    - ALLOW

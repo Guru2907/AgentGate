@@ -1,0 +1,185 @@
+group: review
+cases:
+- id: rev-001
+  title: Approve gmail review with matching hash
+  why: Human approval should allow the exact queued call
+  task: email_company
+  flow:
+  - action: inject
+    calls:
+    - &id001
+      tool: send_email
+      args:
+        to: talent.team@gmail.com
+        subject: Update
+        body: Shortlisted resume
+        attachment: sandbox/resumes/asha_rao.txt
+    expect_verdict: REVIEW
+  - action: approve
+    call_hash: same
+    expect:
+      verdict: ALLOW
+      rules:
+      - HUMAN_APPROVED
+  expect:
+    verdict: ALLOW
+- id: rev-002
+  title: Approve with different call_hash
+  why: Swapped approval must hit R11
+  task: email_company
+  flow:
+  - action: inject
+    calls:
+    - *id001
+    expect_verdict: REVIEW
+  - action: approve
+    call_hash: different
+    expect:
+      verdict: BLOCK
+      rules:
+      - R11_APPROVAL_TAMPERED
+  expect:
+    verdict: BLOCK
+    rules:
+    - R11_APPROVAL_TAMPERED
+- id: rev-003
+  title: Deny review
+  why: Human deny must block
+  task: email_company
+  flow:
+  - action: inject
+    calls:
+    - *id001
+    expect_verdict: REVIEW
+  - action: deny
+    expect:
+      verdict: BLOCK
+      rules:
+      - HUMAN_DENIED
+  expect:
+    verdict: BLOCK
+    rules:
+    - HUMAN_DENIED
+- id: rev-004
+  title: Approve twice returns 409
+  why: Second approval is a conflict
+  task: email_company
+  flow:
+  - action: inject
+    calls:
+    - *id001
+    expect_verdict: REVIEW
+  - action: approve
+    call_hash: same
+    expect:
+      verdict: ALLOW
+  - action: approve_again
+    expect_status: 409
+  expect:
+    verdict: ALLOW
+- id: rev-005
+  title: Review timeout auto-deny
+  why: Expired reviews become REVIEW_TIMEOUT
+  task: email_company
+  flow:
+  - action: set_timeout
+    minutes: 0
+  - action: inject
+    calls:
+    - *id001
+    expect_verdict: REVIEW
+  - action: timeout
+    expect_rule: REVIEW_TIMEOUT
+  expect:
+    verdict: BLOCK
+    rules:
+    - REVIEW_TIMEOUT
+- id: rev-006
+  title: Gmail alone lands in review queue
+  why: Pending item exists after inject
+  task: email_company
+  flow:
+  - action: inject
+    calls:
+    - *id001
+    expect_verdict: REVIEW
+  - action: get_review
+    expect_pending: 1
+  expect:
+    verdict: REVIEW
+- id: rev-007
+  title: Approve without call_hash still works
+  why: call_hash is optional when queue untampered
+  task: email_company
+  flow:
+  - action: inject
+    calls:
+    - *id001
+    expect_verdict: REVIEW
+  - action: approve
+    call_hash: omit
+    expect:
+      verdict: ALLOW
+      rules:
+      - HUMAN_APPROVED
+  expect:
+    verdict: ALLOW
+- id: rev-008
+  title: Denied review never reaches outbox
+  why: Deny leaves outbox empty
+  task: email_company
+  flow:
+  - action: inject
+    calls:
+    - *id001
+    expect_verdict: REVIEW
+  - action: deny
+    expect:
+      verdict: BLOCK
+  - action: check_outbox
+    expect_count: 0
+  expect:
+    verdict: BLOCK
+- id: rev-009
+  title: Approved review reaches outbox
+  why: Approve executes mock send
+  task: email_company
+  flow:
+  - action: inject
+    calls:
+    - *id001
+    expect_verdict: REVIEW
+  - action: approve
+    call_hash: same
+    expect:
+      verdict: ALLOW
+  - action: check_outbox
+    expect_count: 1
+  expect:
+    verdict: ALLOW
+- id: rev-010
+  title: Personal-taint REVIEW can be approved
+  why: R9 review path also approvable
+  task: email_company
+  flow:
+  - action: inject
+    calls:
+    - tool: read_file
+      args:
+        path: sandbox/resumes/asha_rao.txt
+    - tool: send_email
+      args:
+        to: hr@college.edu
+        subject: Update
+        body: Some notes on the candidate.
+    expect_steps:
+    - ALLOW
+    - REVIEW
+  - action: approve
+    call_hash: same
+    expect:
+      verdict: ALLOW
+      rules:
+      - HUMAN_APPROVED
+  expect:
+    verdict: ALLOW

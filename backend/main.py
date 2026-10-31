@@ -5,6 +5,7 @@ together) -> mock tool (only on ALLOW) -> hash-chained audit log. REVIEW calls w
 approval is bound to the exact call the reviewer saw (R11).
 """
 
+import json
 import logging
 import os
 import sqlite3
@@ -560,3 +561,24 @@ def get_policy(_: dict = Depends(auth.require_user)) -> dict:
 @app.get("/api/outbox")
 def get_outbox(session: dict = Depends(auth.require_user)) -> list[dict]:
     return db.list_outbox(session["workspace_id"])
+
+
+@app.get("/api/tests/latest")
+def tests_latest(_: dict = Depends(auth.require_user)) -> dict:
+    """Read-only: newest hand-written / suite report from scripts/test_report.py."""
+    path = Path(__file__).resolve().parents[1] / "data" / "eval" / "results" / "tests.json"
+    if not path.is_file():
+        raise HTTPException(status_code=404, detail="no test report yet; run python scripts/test_report.py")
+    return json.loads(path.read_text(encoding="utf-8"))
+
+
+@app.get("/api/tests/manual")
+def tests_manual(_: dict = Depends(auth.require_user)) -> list[dict]:
+    """Read-only: manual UI test matrix rows from tests/manual/test_matrix.csv."""
+    import csv
+
+    path = Path(__file__).resolve().parents[1] / "tests" / "manual" / "test_matrix.csv"
+    if not path.is_file():
+        raise HTTPException(status_code=404, detail="manual test matrix missing")
+    with path.open(encoding="utf-8", newline="") as f:
+        return list(csv.DictReader(f))
