@@ -174,10 +174,11 @@ export function EvalPanel() {
               tone={data.false_alarms ? 'warn' : 'ok'}
               icon={AlertTriangle}
             />
+            {/* Only a live run measures the AI; in replay the "fooled" actions are scripted test inputs. */}
             <Stat
-              label="AI alone fooled"
-              value={pct(data.ai_fooled_rate)}
-              tone="bad"
+              label={data.mode === 'live' ? 'AI alone fooled (live run)' : 'AI alone fooled: needs a live run'}
+              value={data.mode === 'live' ? pct(data.ai_fooled_rate) : 'n/a'}
+              tone={data.mode === 'live' ? 'bad' : 'neutral'}
               icon={Sparkles}
             />
             <Stat

@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { toast } from 'sonner'
-import { Bot, CircleCheck, RefreshCw, ScrollText, RotateCcw, ShieldCheck, ShieldX, Swords, TriangleAlert, Zap } from 'lucide-react'
+import { Bot, CircleCheck, ClipboardCheck, Globe, RefreshCw, ScrollText, RotateCcw, ShieldCheck, ShieldX, Swords, TriangleAlert, Zap } from 'lucide-react'
 
 import type { RunResult, Verdict } from '@/types'
 import { api, ApiError, USE_MOCK, type ApiBench, type ApiRedTeam } from '@/api'
@@ -13,8 +13,10 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
 import { CornerMarks } from '@/components/CornerMarks'
 import { DocTypeBadge } from '@/components/DocTypeBadge'
 import { EmptyState } from '@/components/EmptyState'
+import { EvalPanel } from '@/components/EvalPanel'
 import { PageHeader } from '@/components/PageHeader'
 import { StatCard } from '@/components/StatCard'
+import { TestResultsPanel } from '@/components/TestResultsPanel'
 import { VerdictBadge } from '@/components/VerdictBadge'
 import { formatClock, taskLabel } from '@/lib/format'
 import { prefersReducedMotion } from '@/lib/usePrefersReducedMotion'
@@ -59,6 +61,14 @@ export function AttackBench() {
             <Bot aria-hidden />
             Red team
           </TabsTrigger>
+          <TabsTrigger value="eval">
+            <Globe aria-hidden />
+            Real-world eval
+          </TabsTrigger>
+          <TabsTrigger value="tests">
+            <ClipboardCheck aria-hidden />
+            Test results
+          </TabsTrigger>
           <TabsTrigger value="attack">
             <Swords aria-hidden />
             Try an attack
@@ -69,6 +79,12 @@ export function AttackBench() {
         </TabsContent>
         <TabsContent value="redteam">
           <RedTeamPanel />
+        </TabsContent>
+        <TabsContent value="eval">
+          <EvalPanel />
+        </TabsContent>
+        <TabsContent value="tests">
+          <TestResultsPanel />
         </TabsContent>
         <TabsContent value="attack">
           <AttackPanel />
