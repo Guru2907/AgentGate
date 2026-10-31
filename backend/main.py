@@ -70,7 +70,17 @@ def _agent_steps() -> int:
 @asynccontextmanager
 async def lifespan(_: FastAPI):
     db.init_db()
+    _ensure_demo_account()
     yield
+
+
+def _ensure_demo_account() -> None:
+    """Hosted demo: the free host wipes the database on each deploy, so recreate one sign-in from env vars."""
+    email, password = os.getenv("DEMO_EMAIL", "").strip().casefold(), os.getenv("DEMO_PASSWORD", "")
+    if not email or len(password) < 12 or db.get_user_by_email(email):
+        return
+    db.create_user(os.getenv("DEMO_NAME", "Demo Judge"), email, auth.hash_password(password))
+    log.info("demo account %s created", email)
 
 
 app = FastAPI(title="AgentGate", version="0.1.0", lifespan=lifespan)
@@ -240,6 +250,12 @@ def _as_record(raw) -> ToolCall | dict:
 
 
 def _client_ip(request: Request) -> str:
+    """Visitor IP for rate limits. Behind a proxy (Vercel -> Render) every request comes from the proxy,
+    so with TRUST_PROXY=true the first X-Forwarded-For address is used instead."""
+    if os.getenv("TRUST_PROXY", "").casefold() in {"1", "true", "yes"}:
+        forwarded = request.headers.get("x-forwarded-for", "").split(",")[0].strip()
+        if forwarded:
+            return forwarded
     return request.client.host if request.client else "unknown"
 
 

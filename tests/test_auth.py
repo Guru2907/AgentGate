@@ -172,3 +172,31 @@ def test_account_deletion_requires_confirmation_and_keeps_audit_log(client):
         assert connection.execute("SELECT 1 FROM users WHERE workspace_id = ?", (workspace_id,)).fetchone() is None
     # append-only: the workspace's audit trail survives and still verifies
     assert db.verify_chain(workspace_id)["ok"] is True
+
+
+def test_demo_account_is_created_from_env_on_start(tmp_path, monkeypatch):
+    from fastapi.testclient import TestClient
+
+    from backend.main import app
+
+    monkeypatch.setenv("DB_PATH", str(tmp_path / "demo.db"))
+    monkeypatch.setenv("DEMO_EMAIL", "judge@example.com")
+    monkeypatch.setenv("DEMO_PASSWORD", "judge-password-123")
+    with TestClient(app) as c:
+        c.headers.update({"Origin": "http://localhost:5173"})
+        r = c.post("/api/auth/login", json={"email": "judge@example.com", "password": "judge-password-123"})
+        assert r.status_code == 200
+    with TestClient(app):  # second start: no duplicate, no error
+        pass
+
+
+def test_rate_limit_uses_forwarded_ip_only_when_trusted(monkeypatch):
+    from starlette.requests import Request
+
+    from backend.main import _client_ip
+
+    scope = {"type": "http", "headers": [(b"x-forwarded-for", b"203.0.113.7, 10.0.0.1")], "client": ("10.0.0.1", 1)}
+    monkeypatch.delenv("TRUST_PROXY", raising=False)
+    assert _client_ip(Request(scope)) == "10.0.0.1"
+    monkeypatch.setenv("TRUST_PROXY", "true")
+    assert _client_ip(Request(scope)) == "203.0.113.7"
