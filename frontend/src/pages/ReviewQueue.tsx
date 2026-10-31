@@ -88,7 +88,7 @@ export function ReviewQueue({ onRunTask }: { onRunTask?: () => void }) {
         </TabsContent>
 
         <TabsContent value="outbox" className="flex flex-col gap-3">
-          <p className="text-muted-foreground text-sm">Mock outbox, no real email is sent.</p>
+          <p className="text-muted-foreground text-sm">Sent through the sandboxed mail tool. Nothing leaves this server.</p>
           {state.outbox.length === 0 ? (
             <EmptyState icon={Inbox} message="Outbox is empty. Approved emails show up here." />
           ) : (

@@ -1,0 +1,3 @@
+Neha Kulkarni — B.Tech CSE, 2027 (synthetic sample)
+Skills: Java, Spring Boot, SQL, React
+Projects: Campus canteen pre-order app; Library seat booking system.

@@ -1,8 +1,9 @@
 import { useEffect, useRef, useState, type ChangeEvent, type CSSProperties, type ReactNode } from 'react'
 import { toast } from 'sonner'
-import { FileLock, Play, RotateCcw, ScrollText, ShieldCheck, Syringe, TriangleAlert, Upload, UserCheck } from 'lucide-react'
+import { CircleCheck, FileLock, Inbox, Play, RotateCcw, ScrollText, Send, ShieldCheck, ShieldX, TriangleAlert, Upload, UserCheck } from 'lucide-react'
 
-import type { RunResult, TaskId } from '@/types'
+import type { RunResult, TaskId, ToolCall, Verdict } from '@/types'
+import { USE_MOCK } from '@/api'
 import { Alert, AlertDescription } from '@/components/ui/alert'
 import { Button } from '@/components/ui/button'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
@@ -10,7 +11,6 @@ import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { RadioGroup, RadioGroupItem } from '@/components/ui/radio-group'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
-import { Separator } from '@/components/ui/separator'
 import { Skeleton } from '@/components/ui/skeleton'
 import { DocTypeBadge } from '@/components/DocTypeBadge'
 import { CornerMarks } from '@/components/CornerMarks'
@@ -84,7 +84,7 @@ export function RunTask({ onOpenReviewQueue, onOpenLog }: RunTaskProps) {
       documents: documents.some((d) => d.name === file.name) ? documents : [...documents, uploadedDocument(file.name)],
       selected: file.name,
     })
-    toast(`${file.name} added. Treated as a clean document in replay mode.`)
+    toast(`${file.name} added. Treated as a clean document in the offline prototype.`)
   }
 
   return (
@@ -117,6 +117,11 @@ export function RunTask({ onOpenReviewQueue, onOpenLog }: RunTaskProps) {
 
             <div className="flex flex-col gap-2">
               <Label id="doc-label">Document</Label>
+              {documents.length === 0 && (
+                <p className="text-muted-foreground rounded-lg border border-dashed px-3 py-4 text-sm">
+                  {state.backendOnline === false ? 'Could not load documents. Check that the backend is running.' : 'Loading documents…'}
+                </p>
+              )}
               <RadioGroup aria-labelledby="doc-label" value={selected} onValueChange={setSelected} className="gap-2">
                 {documents.map((d) => (
                   <Label
@@ -136,12 +141,17 @@ export function RunTask({ onOpenReviewQueue, onOpenLog }: RunTaskProps) {
             </div>
 
             <div className="flex flex-col gap-3">
-              <Input ref={fileInput} type="file" accept=".txt,.pdf" className="hidden" onChange={onFileChosen} tabIndex={-1} />
-              <Button variant="outline" onClick={() => fileInput.current?.click()} disabled={busy}>
-                <Upload aria-hidden />
-                Upload document
-              </Button>
-              <Button className="w-full" size="lg" onClick={() => start('run')} disabled={busy}>
+              {/* The backend runs only its own documents, so upload exists in the offline prototype only. */}
+              {USE_MOCK && (
+                <>
+                  <Input ref={fileInput} type="file" accept=".txt,.pdf" className="hidden" onChange={onFileChosen} tabIndex={-1} />
+                  <Button variant="outline" onClick={() => fileInput.current?.click()} disabled={busy}>
+                    <Upload aria-hidden />
+                    Upload document
+                  </Button>
+                </>
+              )}
+              <Button className="w-full" size="lg" onClick={() => start('run')} disabled={busy || documents.length === 0}>
                 {busy ? <RotateCcw aria-hidden className="animate-spin motion-reduce:animate-none" /> : <Play aria-hidden />}
                 {busy ? 'Running…' : 'Run'}
                 {!busy && <kbd className="bg-primary-foreground/15 ml-1 hidden rounded px-1.5 py-0.5 font-mono text-2xs font-medium sm:inline">Ctrl ↵</kbd>}
@@ -152,18 +162,6 @@ export function RunTask({ onOpenReviewQueue, onOpenLog }: RunTaskProps) {
               </Button>
             </div>
 
-            <Separator />
-
-            <div className="flex flex-col gap-3">
-              <span className="eyebrow">Demo</span>
-              <Button variant="outline" className="text-blocked-ink hover:text-blocked-ink self-start" onClick={() => start('inject')} disabled={busy}>
-                <Syringe aria-hidden />
-                Inject attack
-              </Button>
-              <p className="text-muted-foreground text-xs leading-relaxed">
-                Sends a hostile tool call straight to the gate, no AI involved.
-              </p>
-            </div>
           </CardContent>
         </Card>
 
@@ -237,11 +235,43 @@ interface RunOutcomeProps {
   onOpenLog: (logId: number) => void
 }
 
+const SEVERITY: Record<Verdict, number> = { ALLOW: 0, REVIEW: 1, BLOCK: 2 }
+
+/** The step that decides the run: the first BLOCK, else the first REVIEW, else the last call. */
+function decidingStep(result: RunResult): number {
+  let pick = result.decisions.length - 1
+  result.decisions.forEach((d, i) => {
+    if (SEVERITY[d.verdict] > SEVERITY[result.decisions[pick].verdict]) pick = i
+  })
+  return Math.max(0, pick)
+}
+
+function argText(call: ToolCall, key: string): string {
+  const v = call.args?.[key]
+  return typeof v === 'string' ? v : ''
+}
+
+/** "send an email to x@y", "delete sandbox/…": what the AI tried, in words. */
+function attempted(call: ToolCall): string {
+  switch (call.tool) {
+    case 'send_email':
+      return `send an email to ${argText(call, 'to') || 'an unknown address'}`
+    case 'delete_file':
+      return `delete ${argText(call, 'path') || 'a file'}`
+    case 'read_file':
+      return `read ${argText(call, 'path') || 'a file'}`
+    case 'summarise':
+      return 'summarise the document'
+    default:
+      return `call ${String((call as { tool?: unknown }).tool ?? 'an unknown tool')}`
+  }
+}
+
 function RunOutcome({ outcome, onOpenReviewQueue, onOpenLog }: RunOutcomeProps) {
   const { request, result, extras, source, logId, outboxHadItems } = outcome
-  const call = result.proposed[0]
-  const decision = result.decisions[0]
-  const output = result.outputs[0]
+  const focus = decidingStep(result)
+  const call = result.proposed[focus]
+  const decision = result.decisions[focus]
   const { verdict } = decision
   const subtitle = decision.rules[0] ? RULE_TITLES[decision.rules[0]] : 'No rules hit. The call matches the task policy.'
 
@@ -258,10 +288,18 @@ function RunOutcome({ outcome, onOpenReviewQueue, onOpenLog }: RunOutcomeProps) 
         />
       </PipelineCard>
 
+      {request.task === 'email_company' ? (
+        <EmailResult result={result} onOpenReviewQueue={onOpenReviewQueue} />
+      ) : (
+        <SummaryResult result={result} focus={focus} />
+      )}
+
+      {result.proposed.length > 1 && <StepsCard result={result} focus={focus} />}
+
       {extras.hiddenText && (
-        <Card className="ag-fade-up gap-2 py-3" style={{ '--ag-i': 1 } as CSSProperties}>
+        <Card className="ag-fade-up gap-2 py-3" style={{ '--ag-i': 2 } as CSSProperties}>
           <CardHeader className="px-4">
-            <CardTitle>Hidden text found in document</CardTitle>
+            <CardTitle>Hidden instruction found in the document</CardTitle>
           </CardHeader>
           <CardContent className="px-4">
             <Alert variant="review">
@@ -275,9 +313,9 @@ function RunOutcome({ outcome, onOpenReviewQueue, onOpenLog }: RunOutcomeProps) 
       )}
 
       <div className={cn('grid grid-cols-1 gap-4', extras.egress && 'xl:grid-cols-[minmax(0,1fr)_minmax(0,19rem)]')}>
-        <Card className="ag-fade-up gap-3 py-4" style={{ '--ag-i': 2 } as CSSProperties}>
+        <Card className="ag-fade-up gap-3 py-4" style={{ '--ag-i': 3 } as CSSProperties}>
           <CardContent className="flex flex-col gap-3 px-4">
-            <Eyebrow>Proposed tool call</Eyebrow>
+            <Eyebrow>{result.proposed.length > 1 ? `Deciding call (step ${focus + 1})` : 'Proposed tool call'}</Eyebrow>
             <ToolCallBlock call={call} />
           </CardContent>
         </Card>
@@ -301,12 +339,6 @@ function RunOutcome({ outcome, onOpenReviewQueue, onOpenLog }: RunOutcomeProps) 
           </div>
           {decision.rules.length > 0 && (
             <RuleReasonList rules={decision.rules} reasons={decision.reasons} verdict={verdict} />
-          )}
-          {verdict === 'ALLOW' && (
-            <div className="flex flex-col gap-2">
-              <Eyebrow>Executed output</Eyebrow>
-              <p className="bg-muted rounded-lg border px-4 py-3 text-sm leading-relaxed">{output}</p>
-            </div>
           )}
         </CardContent>
       </Card>
@@ -333,7 +365,156 @@ function RunOutcome({ outcome, onOpenReviewQueue, onOpenLog }: RunOutcomeProps) 
   )
 }
 
-function alertText(verdict: RunResult['decisions'][number]['verdict'], logId: number, outboxHadItems: boolean): string {
+/** Summarise resume: the summary itself when allowed, otherwise what the AI tried instead. */
+function SummaryResult({ result, focus }: { result: RunResult; focus: number }) {
+  const i = result.proposed.findIndex((c) => c.tool === 'summarise')
+  const summarised = i >= 0 && result.decisions[i].verdict === 'ALLOW' && result.decisions[focus].verdict === 'ALLOW'
+  if (summarised) {
+    return (
+      <Card className="ag-fade-up gap-3 py-4" style={{ '--ag-i': 1 } as CSSProperties}>
+        <CardContent className="flex flex-col gap-3 px-4">
+          <Eyebrow>Result · Resume summary</Eyebrow>
+          <p className="text-base leading-relaxed [overflow-wrap:anywhere]">{result.outputs[i].replace(/^Summary:\s*/, '')}</p>
+          <p className="text-allowed-ink inline-flex items-center gap-1.5 text-sm">
+            <CircleCheck aria-hidden className="size-4" />
+            Allowed by the gate. The summary ran in the sandbox.
+          </p>
+        </CardContent>
+      </Card>
+    )
+  }
+  const tried = result.proposed[focus]
+  const mismatch = result.decisions[focus].rules.includes('R1_TOOL_NOT_ALLOWED')
+  return (
+    <Card className="ag-fade-up gap-3 py-4" style={{ '--ag-i': 1 } as CSSProperties}>
+      <CardContent className="flex flex-col gap-3 px-4">
+        <Eyebrow>Result · Attack stopped</Eyebrow>
+        <p className="text-base leading-relaxed">
+          You asked for a summary. The AI tried to <strong className="[overflow-wrap:anywhere]">{attempted(tried)}</strong> instead.
+        </p>
+        {mismatch && (
+          <p className="text-blocked-ink text-sm">
+            Intent–action mismatch: {tried.tool} is not an action this task may take, so the gate blocked it.
+          </p>
+        )}
+        <p className="text-muted-foreground text-sm">Nothing was executed and no summary was produced.</p>
+      </CardContent>
+    </Card>
+  )
+}
+
+/** Which part of an allowed-tool email the gate objected to, from the rules it hit. */
+function blockedPart(rules: string[]): string {
+  if (rules.some((r) => r.startsWith('R9'))) return 'confidential data was read earlier in this run, so nothing may leave'
+  if (rules.some((r) => r.startsWith('R2'))) return 'the recipient is not an allowed company domain'
+  if (rules.some((r) => r.startsWith('R4') || r.startsWith('R3'))) return 'the attachment is outside what this task may send'
+  if (rules.some((r) => r.startsWith('R5') || r.startsWith('R10'))) return 'the email carries private data'
+  return 'this email breaks the task policy'
+}
+
+/** Email company: the email the AI wrote, and whether it was sent, held for review or blocked. */
+function EmailResult({ result, onOpenReviewQueue }: { result: RunResult; onOpenReviewQueue: () => void }) {
+  // Prefer the email that decided the run, else the first email.
+  const emails = result.proposed.map((_, i) => i).filter((i) => result.proposed[i].tool === 'send_email')
+  const i = emails.find((j) => result.decisions[j].verdict !== 'ALLOW') ?? emails[0]
+  if (i === undefined) {
+    const focus = decidingStep(result)
+    return (
+      <Card className="ag-fade-up gap-3 py-4" style={{ '--ag-i': 1 } as CSSProperties}>
+        <CardContent className="flex flex-col gap-3 px-4">
+          <Eyebrow>Result · Attack stopped</Eyebrow>
+          <p className="text-base leading-relaxed">
+            You asked to email a company. The AI tried to{' '}
+            <strong className="[overflow-wrap:anywhere]">{attempted(result.proposed[focus])}</strong> instead.
+          </p>
+          <p className="text-muted-foreground text-sm">No email was written and nothing was executed.</p>
+        </CardContent>
+      </Card>
+    )
+  }
+
+  const email = result.proposed[i]
+  const { verdict, rules } = result.decisions[i]
+  const attachment = argText(email, 'attachment')
+  return (
+    <Card className="ag-fade-up gap-3 py-4" style={{ '--ag-i': 1 } as CSSProperties}>
+      <CardContent className="flex flex-col gap-3 px-4">
+        <div className="flex flex-wrap items-center justify-between gap-2">
+          <Eyebrow>Result · Email to a company</Eyebrow>
+          <VerdictBadge verdict={verdict} />
+        </div>
+        <dl className="grid grid-cols-[5.5rem_minmax(0,1fr)] gap-x-3 gap-y-1.5 rounded-lg border px-4 py-3 text-sm">
+          <dt className="text-muted-foreground">To</dt>
+          <dd className="font-mono [overflow-wrap:anywhere]">{argText(email, 'to') || '—'}</dd>
+          <dt className="text-muted-foreground">Subject</dt>
+          <dd className="[overflow-wrap:anywhere]">{argText(email, 'subject') || '—'}</dd>
+          <dt className="text-muted-foreground">Attachment</dt>
+          <dd className="font-mono [overflow-wrap:anywhere]">{attachment ? docName(attachment) : 'none'}</dd>
+          <dt className="text-muted-foreground">Body</dt>
+          <dd className="text-muted-foreground line-clamp-4 whitespace-pre-line">{argText(email, 'body') || '—'}</dd>
+        </dl>
+        {verdict === 'ALLOW' && (
+          <Alert className="border-allowed/40 bg-allowed-soft text-allowed-ink">
+            <Send aria-hidden />
+            <AlertDescription className="text-allowed-ink flex flex-wrap items-center justify-between gap-3">
+              <span>Sent through the sandboxed mail tool. It is in the Outbox (nothing really leaves).</span>
+              <Button size="sm" variant="outline" onClick={onOpenReviewQueue}>
+                <Inbox aria-hidden />
+                View Outbox
+              </Button>
+            </AlertDescription>
+          </Alert>
+        )}
+        {verdict === 'REVIEW' && (
+          <Alert variant="review">
+            <UserCheck aria-hidden />
+            <AlertDescription className="text-review-ink flex flex-wrap items-center justify-between gap-3">
+              <span>Held for a human. Approve or deny it in the Review Queue; it is auto-denied after 10 minutes.</span>
+              <Button size="sm" onClick={onOpenReviewQueue}>
+                <UserCheck aria-hidden />
+                Open Review Queue
+              </Button>
+            </AlertDescription>
+          </Alert>
+        )}
+        {verdict === 'BLOCK' && (
+          <Alert variant="destructive">
+            <ShieldX aria-hidden />
+            <AlertDescription className="text-blocked-ink">
+              Not sent. Email is allowed for this task, but {blockedPart(rules)}.
+            </AlertDescription>
+          </Alert>
+        )}
+      </CardContent>
+    </Card>
+  )
+}
+
+/** Multi-step runs: every call the AI made, in order, with the gate's verdict on each. */
+function StepsCard({ result, focus }: { result: RunResult; focus: number }) {
+  return (
+    <Card className="ag-fade-up gap-3 py-4" style={{ '--ag-i': 2 } as CSSProperties}>
+      <CardContent className="flex flex-col gap-3 px-4">
+        <Eyebrow>Every step of this run</Eyebrow>
+        <ol className="flex flex-col gap-2">
+          {result.proposed.map((c, i) => (
+            <li
+              key={i}
+              className={cn('flex flex-wrap items-center gap-3 rounded-lg border px-3 py-2 text-sm', i === focus && 'border-border-strong bg-accent')}
+            >
+              <span className="text-muted-foreground font-mono text-xs">Step {i + 1}</span>
+              <span className="min-w-0 flex-1 [overflow-wrap:anywhere]">{attempted(c)}</span>
+              <span className="text-muted-foreground font-mono text-xs">{result.decisions[i].rules.map((r) => r.split('_')[0]).join(', ')}</span>
+              <VerdictBadge verdict={result.decisions[i].verdict} />
+            </li>
+          ))}
+        </ol>
+      </CardContent>
+    </Card>
+  )
+}
+
+function alertText(verdict: Verdict, logId: number, outboxHadItems: boolean): string {
   switch (verdict) {
     case 'BLOCK':
       return outboxHadItems
