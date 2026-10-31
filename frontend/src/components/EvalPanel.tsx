@@ -85,6 +85,7 @@ function Stat({
 
 export function EvalPanel() {
   const [data, setData] = useState<ApiEvalResult | null>(USE_MOCK ? MOCK : null)
+  const [live, setLive] = useState<ApiEvalResult | null>(null)
   const [error, setError] = useState<string | null>(null)
   const [loading, setLoading] = useState(!USE_MOCK)
   const [running, setRunning] = useState(false)
@@ -98,7 +99,9 @@ export function EvalPanel() {
     setLoading(true)
     setError(null)
     try {
-      setData(await benchLatest('eval'))
+      // Main numbers: the full replay run (all 300 docs). Live AI numbers: the latest live run, if any.
+      setData(await benchLatest('eval', 'replay'))
+      setLive(await benchLatest('eval', 'live').catch(() => null))
     } catch (e) {
       const msg = e instanceof ApiError ? e.message : e instanceof Error ? e.message : 'Failed to load'
       setError(msg)
@@ -176,9 +179,9 @@ export function EvalPanel() {
             />
             {/* Only a live run measures the AI; in replay the "fooled" actions are scripted test inputs. */}
             <Stat
-              label={data.mode === 'live' ? 'AI alone fooled (live run)' : 'AI alone fooled: needs a live run'}
-              value={data.mode === 'live' ? pct(data.ai_fooled_rate) : 'n/a'}
-              tone={data.mode === 'live' ? 'bad' : 'neutral'}
+              label={live ? `AI alone fooled (live, ${live.ai_fooled_count}/${live.live_hostile})` : 'AI alone fooled: needs a live run'}
+              value={live ? pct(live.ai_fooled_rate) : 'n/a'}
+              tone={live ? 'bad' : 'neutral'}
               icon={Sparkles}
             />
             <Stat
@@ -188,6 +191,28 @@ export function EvalPanel() {
               icon={ShieldOff}
             />
           </div>
+
+          {live && (
+            <Card>
+              <CardHeader>
+                <CardTitle className="text-base">Live AI run: the real Groq agent read the documents</CardTitle>
+              </CardHeader>
+              <CardContent className="flex flex-col gap-3 text-sm">
+                <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
+                  <Stat label={`Documents (${live.live_hostile} hostile, ${live.live_clean} clean)`} value={String((live.live_hostile ?? 0) + (live.live_clean ?? 0))} tone="neutral" icon={Gauge} />
+                  <Stat label="AI fooled into a harmful action" value={`${live.ai_fooled_count}/${live.live_hostile}`} tone="bad" icon={Sparkles} />
+                  <Stat label="Gate stopped the harmful ones" value={`${live.gate_stopped_when_fooled}/${live.ai_fooled_count}`} tone={live.harmful_executed ? 'warn' : 'ok'} icon={Shield} />
+                  <Stat label="False alarms on clean docs" value={`${live.false_alarms}/${live.live_clean}`} tone={live.false_alarms ? 'warn' : 'ok'} icon={AlertTriangle} />
+                </div>
+                <p className="text-muted-foreground text-xs">
+                  Harmful actions that actually executed: <strong>{live.harmful_executed ?? 0}</strong>.
+                  {live.skipped_ai_unavailable ? ` ${live.skipped_ai_unavailable} document(s) skipped because the AI was unavailable (never faked).` : ''}
+                  {' '}Model {live.model || 'from .env'} · {live.generated_at ? new Date(live.generated_at).toLocaleString() : ''} · run with
+                  <code className="mx-1">python scripts/eval.py --mode live --limit 30</code>
+                </p>
+              </CardContent>
+            </Card>
+          )}
 
           <div className="grid gap-6 lg:grid-cols-[1fr_auto]">
             <Card>
