@@ -128,3 +128,39 @@ def test_uploaded_resume_can_be_attached(client):
     body = client.post("/api/inject", json={"task": "email_company",
                                             "calls": [_email("hr@partner-company.com", attachment=up["path"])]}).json()
     assert body["decisions"][0]["verdict"] == "ALLOW"
+
+
+def test_draft_is_a_step_by_step_plan_and_the_email_preview_knows_the_history(client, monkeypatch):
+    """Hurdle through the composer: the live AI reads the confidential list, then emails an allowed partner."""
+    plan = iter([
+        [{"tool": "read_file", "args": {"path": "sandbox/placement_list.xlsx"}, "_id": "1"}],
+        [{"tool": "send_email", "args": {"to": "hr@partner-company.com", "subject": "summary", "body": "Short summary"}, "_id": "2"}],
+    ])
+    monkeypatch.setattr(agent, "_propose_live", lambda *a, **k: next(plan))
+    before = _log_count(client)
+    d = client.post("/api/email/draft", json={"doc": DOC, "to": "hr@partner-company.com"}).json()
+    assert [s["call"]["tool"] for s in d["steps"]] == ["read_file", "send_email"]
+    assert d["steps"][0]["preview"]["verdict"] == "ALLOW"
+    assert d["steps"][1]["preview"]["verdict"] == "BLOCK"
+    assert "R9_TAINTED_EGRESS" in d["steps"][1]["preview"]["rules"]
+    assert _log_count(client) == before  # planning runs and logs nothing
+
+    prior, email = [d["steps"][0]["call"]], d["steps"][1]["call"]
+    preview = client.post("/api/check", json={"task": "email_company", "call": email, "prior": prior}).json()
+    assert "R9_TAINTED_EGRESS" in preview["rules"]
+    sent = client.post("/api/inject", json={"task": "email_company", "calls": [*prior, email]}).json()
+    assert [x["verdict"] for x in sent["decisions"]] == ["ALLOW", "BLOCK"]
+    assert "R9_TAINTED_EGRESS" in sent["decisions"][1]["rules"]
+    assert _log_count(client) == before + 2  # both steps really ran through the gate and were logged
+
+
+def test_reading_the_candidates_own_document_is_not_a_plan_step(client, monkeypatch):
+    plan = iter([
+        [{"tool": "read_file", "args": {"path": DOC}, "_id": "1"}],
+        [{"tool": "send_email", "args": {"to": "hr@partner-company.com", "subject": "s", "body": "b",
+                                         "attachment": "sandbox/resumes/rahul_menon.txt"}, "_id": "2"}],
+    ])
+    monkeypatch.setattr(agent, "_propose_live", lambda *a, **k: next(plan))
+    d = client.post("/api/email/draft", json={"doc": DOC, "to": "hr@partner-company.com"}).json()
+    assert [s["call"]["tool"] for s in d["steps"]] == ["send_email"]
+    assert d["steps"][0]["preview"]["verdict"] == "ALLOW"

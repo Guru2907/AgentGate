@@ -203,6 +203,7 @@ class CheckRequest(_Strict):
 
     task: str
     call: dict
+    prior: list = Field(default_factory=list, max_length=10)  # earlier steps of the same plan, judged first
 
 
 DOMAIN_PATTERN = r"^[A-Za-z0-9](?:[A-Za-z0-9-]*[A-Za-z0-9])?(?:\.[A-Za-z0-9](?:[A-Za-z0-9-]*[A-Za-z0-9])?)+$"

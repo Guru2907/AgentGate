@@ -232,7 +232,14 @@ export function RunTask({ onOpenReviewQueue, onOpenLog }: RunTaskProps) {
 
         {/* ------------------------------ Result ----------------------------- */}
         <section ref={resultRef} aria-label="Result" aria-live="polite" className="flex min-w-0 scroll-mt-20 flex-col gap-4">
-          {task === 'email_company' && <EmailComposer doc={selected || undefined} onOpenReviewQueue={onOpenReviewQueue} onOpenLog={onOpenLog} />}
+          {task === 'email_company' && (
+            <EmailComposer
+              doc={selected || undefined}
+              docLabel={documents.find((d) => d.path === selected)?.name}
+              onOpenReviewQueue={onOpenReviewQueue}
+              onOpenLog={onOpenLog}
+            />
+          )}
 
           {task !== 'email_company' && phase.kind === 'idle' && (
             <IdleArtwork message="Upload a resume, pick it, and press Run to see what the AI tries to do." />

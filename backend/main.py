@@ -799,38 +799,96 @@ def _template_draft(text: str, doc: str, to: str, note: str | None) -> dict:
     return {"tool": "send_email", "args": {"to": to, "subject": f"Candidate profile: {name}", "body": body, "attachment": doc}}
 
 
-@app.post("/api/email/draft")
-def draft_email(req: EmailDraftRequest, session: dict = Depends(auth.require_write_user)) -> dict:
-    """The agent drafts an email about the candidate. Not sent and not logged: the user edits, then sends."""
+PLAN_STEPS = 3  # same as the per-run action budget (R7)
+NOT_RUN_YET = (
+    "(planned: this runs through the gate when the recruiter presses Send. Treat it as done and its result as "
+    "available; do not repeat it. Continue with the next step, ending with exactly one send_email.)"
+)
+
+
+def _plan_email(text: str, doc: str, request: str, policy: dict) -> tuple[list[dict], str]:
+    """Ask the live AI for its whole plan, one step at a time (read -> read -> email). Nothing runs, nothing is logged.
+
+    Each step is previewed by the gate with a shared RunContext, so the final email's preview already knows what the
+    plan read (R9) and what earlier emails carried (R10). Reading the candidate's own document is skipped: the AI
+    already has its text.
+    """
     from backend import agent
 
+    ctx = gate.RunContext()
+    history: list[dict] = []
+    steps: list[dict] = []
+    for _ in range(PLAN_STEPS + 1):
+        calls = [{k: v for k, v in c.items() if k != "_id"} for c in agent._propose_live(EMAIL_TASK, text, doc, history=history or None, request=request)]
+        if not calls:
+            break
+        call = calls[0]
+        args = call.get("args") if isinstance(call.get("args"), dict) else {}
+        if call.get("tool") == "read_file" and str(args.get("path", "")).replace("\\", "/") == doc:
+            history.append({"call": call, "output": text[:4000], "verdict": "ALLOW"})  # its own document: no step
+            continue
+        if any(s["call"] == call for s in steps):  # the AI repeated a planned step: not a new action
+            history.append({"call": call, "output": NOT_RUN_YET, "verdict": "ALLOW"})
+            continue
+        decision = gate.check(call, EMAIL_TASK, policy, ctx)
+        steps.append({"call": call, "preview": decision.model_dump()})
+        if call.get("tool") == "send_email" or len(steps) >= PLAN_STEPS:
+            break
+        ctx.record(_as_record(call), decision, NOT_RUN_YET, policy)
+        history.append({"call": call, "output": NOT_RUN_YET, "verdict": decision.verdict})
+    return steps, "live"
+
+
+def _preview_with_prior(prior: list, call: dict, policy: dict) -> Decision:
+    """Gate verdict for `call` after the plan's earlier steps, in one RunContext (still no execution, no logging)."""
+    ctx = gate.RunContext()
+    for raw in prior:
+        decision = gate.check(raw, EMAIL_TASK, policy, ctx)
+        ctx.record(_as_record(raw), decision, NOT_RUN_YET, policy)
+    return gate.check(call, EMAIL_TASK, policy, ctx)
+
+
+@app.post("/api/email/draft")
+def draft_email(req: EmailDraftRequest, session: dict = Depends(auth.require_write_user)) -> dict:
+    """The live AI plans the email task step by step. The gate previews each step; the user edits; Send runs it all."""
     workspace_id = session["workspace_id"]
     text = _read_doc(_resolve_doc(req.doc, workspace_id))
-    request = f"Draft an email to {req.to} about this candidate and attach their document ({req.doc})."
+    policy = workspace_policy(workspace_id)
+    request = (
+        f"Email the candidate's document ({req.doc}) to {req.to}. The document text is already included below. "
+        "Use tools only if the task really needs them, then send exactly one email."
+    )
     if req.note:
         request += f" Note from the recruiter: {req.note}"
     try:
-        calls = [{k: v for k, v in c.items() if k != "_id"} for c in agent._propose_live(EMAIL_TASK, text, req.doc, request=request)]
-        agent_mode = "live"
+        steps, agent_mode = _plan_email(text, req.doc, request, policy)
     except Exception as exc:
         log.warning("live agent unavailable for draft (%s); using a template", type(exc).__name__)
-        calls, agent_mode = [], "fallback"
-    if not calls:
-        calls, agent_mode = [_template_draft(text, req.doc, req.to, req.note)], "fallback"  # AI gave no call
-    policy = workspace_policy(workspace_id)
-    previews = [gate.check(c, EMAIL_TASK, policy).model_dump() for c in calls]
+        steps, agent_mode = [], "fallback"
+    email_from_template = not any(s["call"].get("tool") == "send_email" for s in steps)
+    if email_from_template:  # no email in the plan (AI unavailable, or it never wrote one): editable template
+        prior = [s["call"] for s in steps]
+        template = _template_draft(text, req.doc, req.to, req.note)
+        steps.append({"call": template, "preview": _preview_with_prior(prior, template, policy).model_dump()})
     return {
-        "calls": calls,  # usually one send_email; a fooled agent may propose something else, shown as-is
-        "previews": previews,
+        "steps": steps,  # in order; the last one is the email the user edits
         "agent_mode": agent_mode,
+        "email_from_template": email_from_template,
         "hidden_text": insights.hidden_instructions(text),
+        # kept for older clients
+        "calls": [s["call"] for s in steps],
+        "previews": [s["preview"] for s in steps],
     }
 
 
 @app.post("/api/check")
 def check_call(req: CheckRequest, session: dict = Depends(auth.require_write_user)) -> dict:
-    """Preview the gate's verdict for one call. Nothing runs and nothing is logged; Send decides for real."""
-    return gate.check(req.call, req.task, workspace_policy(session["workspace_id"])).model_dump()
+    """Preview the gate's verdict for one call, after any earlier steps of the same plan (`prior`).
+    Nothing runs and nothing is logged; Send decides for real."""
+    policy = workspace_policy(session["workspace_id"])
+    if req.prior:
+        return _preview_with_prior(req.prior, req.call, policy).model_dump()
+    return gate.check(req.call, req.task, policy).model_dump()
 
 
 @app.get("/api/allowlist")

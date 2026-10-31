@@ -353,10 +353,13 @@ export interface ApiGateDecision {
 }
 
 export interface ApiEmailDraft {
+  /** The AI's plan in order; the last step is the email the user edits. */
+  steps: { call: ToolCall; preview: ApiGateDecision }[]
+  agent_mode: 'live' | 'fallback'
+  email_from_template: boolean
+  hidden_text: string | null
   calls: ToolCall[]
   previews: ApiGateDecision[]
-  agent_mode: 'live' | 'fallback'
-  hidden_text: string | null
 }
 
 export interface ApiAllowlist {
@@ -370,8 +373,8 @@ export function draftEmail(body: { doc: string; to: string; note?: string }) {
 }
 
 /** Gate preview only: nothing runs, nothing is logged. */
-export function checkCall(task: string, call: ToolCall) {
-  return post<ApiGateDecision>('/check', { task, call })
+export function checkCall(task: string, call: ToolCall, prior: ToolCall[] = []) {
+  return post<ApiGateDecision>('/check', { task, call, prior })
 }
 
 export function getAllowlist() {

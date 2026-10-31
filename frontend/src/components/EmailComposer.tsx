@@ -19,6 +19,8 @@ const TASK = 'email_company'
 interface EmailComposerProps {
   /** RunRequest.doc of the selected candidate (sample path or uploads/<id>). */
   doc: string | undefined
+  /** Display name of the candidate document (uploads have opaque ids). */
+  docLabel?: string
   onOpenReviewQueue: () => void
   onOpenLog: (logId: number) => void
 }
@@ -26,13 +28,16 @@ interface EmailComposerProps {
 type Sent = { result: RunResult; logId: number | null }
 
 /** Email company as a real workflow: the AI drafts, the user edits, the gate previews, Send goes through the gate. */
-export function EmailComposer({ doc, onOpenReviewQueue, onOpenLog }: EmailComposerProps) {
+export function EmailComposer({ doc, docLabel, onOpenReviewQueue, onOpenLog }: EmailComposerProps) {
+  const nameOf = (path: string) => (path === doc && docLabel ? docLabel : docName(path))
   const { refresh } = useStore()
   const [to, setTo] = useState('')
   const [note, setNote] = useState('')
   const [drafting, setDrafting] = useState(false)
   const [draft, setDraft] = useState<ApiEmailDraft | null>(null)
   const [call, setCall] = useState<ToolCall | null>(null)
+  // The AI's earlier steps (reads etc.): previewed with the email and run together with it on Send.
+  const [prior, setPrior] = useState<ToolCall[]>([])
   const [preview, setPreview] = useState<ApiGateDecision | null>(null)
   const [sending, setSending] = useState(false)
   const [sent, setSent] = useState<Sent | null>(null)
@@ -48,12 +53,12 @@ export function EmailComposer({ doc, onOpenReviewQueue, onOpenLog }: EmailCompos
   useEffect(() => {
     if (!call) return
     const timer = window.setTimeout(() => {
-      checkCall(TASK, call)
+      checkCall(TASK, call, prior)
         .then(setPreview)
         .catch(() => setPreview(null))
     }, 400)
     return () => window.clearTimeout(timer)
-  }, [call])
+  }, [call, prior])
 
   async function makeDraft() {
     if (!doc || !to.trim()) return
@@ -61,9 +66,11 @@ export function EmailComposer({ doc, onOpenReviewQueue, onOpenLog }: EmailCompos
     setSent(null)
     try {
       const d = await draftEmail({ doc, to: to.trim(), note: note.trim() || undefined })
+      const last = d.steps[d.steps.length - 1]
       setDraft(d)
-      setCall(d.calls[0] ?? null)
-      setPreview(d.previews[0] ?? null)
+      setPrior(d.steps.slice(0, -1).map((s) => s.call))
+      setCall(last?.call ?? null)
+      setPreview(last?.preview ?? null)
     } catch (err) {
       toast.error(err instanceof ApiError ? err.message : 'Could not draft the email')
     } finally {
@@ -75,10 +82,11 @@ export function EmailComposer({ doc, onOpenReviewQueue, onOpenLog }: EmailCompos
     if (!call) return
     setSending(true)
     try {
-      const result = await api.inject(TASK, [call])
+      // The whole plan in one real run: the gate sees the earlier steps first (R9/R10 use them), everything is logged.
+      const result = await api.inject(TASK, [...prior, call])
       const log = await refresh()
       setSent({ result, logId: log?.at(-1)?.id ?? null })
-      const verdict = result.decisions[0]?.verdict
+      const verdict = result.decisions[result.decisions.length - 1]?.verdict
       if (verdict === 'ALLOW') toast.success('Sent. It is in the local test inbox.')
       else if (verdict === 'REVIEW') toast.warning('Held for a human in the Review Queue.')
       else toast.error('Blocked by the gate. Nothing was sent.')
@@ -98,7 +106,8 @@ export function EmailComposer({ doc, onOpenReviewQueue, onOpenLog }: EmailCompos
     setSent(null)
   }
   const isEmail = call?.tool === 'send_email'
-  const sentVerdict = sent?.result.decisions[0]
+  const sentVerdict = sent?.result.decisions[sent.result.decisions.length - 1]
+  const sentOutput = sent?.result.outputs[sent.result.outputs.length - 1]
 
   return (
     <div className="flex flex-col gap-4">
@@ -121,7 +130,7 @@ export function EmailComposer({ doc, onOpenReviewQueue, onOpenLog }: EmailCompos
               {drafting ? 'Drafting…' : draft ? 'Draft again' : 'Draft email'}
             </Button>
             <span className="text-muted-foreground text-xs">
-              Candidate: <span className="font-mono">{doc ? docName(doc) : 'pick a document on the left'}</span>
+              Candidate: <span className="font-mono">{doc ? nameOf(doc) : 'upload or pick a resume on the left'}</span>
             </span>
           </div>
         </CardContent>
@@ -146,12 +155,36 @@ export function EmailComposer({ doc, onOpenReviewQueue, onOpenLog }: EmailCompos
               </Alert>
             )}
 
+            {draft.steps.length > 1 && (
+              <div className="flex flex-col gap-2">
+                <span className="text-muted-foreground text-xs">
+                  The AI's plan, step by step. The gate previews each step with what came before; nothing has run yet.
+                </span>
+                <ol className="flex flex-col gap-1.5">
+                  {draft.steps.slice(0, -1).map((s, i) => (
+                    <li key={i} className="flex flex-wrap items-center gap-2 rounded-md border px-3 py-1.5 text-sm">
+                      <span className="text-muted-foreground font-mono text-xs">Step {i + 1}</span>
+                      <span className="min-w-0 flex-1 font-mono text-xs [overflow-wrap:anywhere]">
+                        {s.call.tool}({String((s.call.args as Record<string, unknown>).path ?? (s.call.args as Record<string, unknown>).to ?? '')})
+                      </span>
+                      <span className="text-muted-foreground font-mono text-2xs">{s.preview.rules.map((r) => r.split('_')[0]).join(', ')}</span>
+                      <VerdictBadge verdict={s.preview.verdict} />
+                    </li>
+                  ))}
+                  <li className="text-muted-foreground px-1 text-xs">Step {draft.steps.length}: the email below</li>
+                </ol>
+              </div>
+            )}
+            {draft.email_from_template && (
+              <p className="text-muted-foreground text-xs">The AI didn't write an email, so here is a template to edit.</p>
+            )}
+
             {!isEmail ? (
               <Alert variant="destructive">
                 <ShieldX aria-hidden />
                 <AlertDescription className="text-blocked-ink">
-                  The AI didn't write an email: it tried <strong>{call.tool}</strong> instead (likely fooled by the document). The gate preview
-                  below shows what would happen. Draft again or write the email yourself.
+                  The AI's last step was <strong>{call.tool}</strong>, not an email. The gate preview below shows what would happen if it ran.
+                  Draft again, or write the email yourself.
                 </AlertDescription>
               </Alert>
             ) : (
@@ -180,7 +213,7 @@ export function EmailComposer({ doc, onOpenReviewQueue, onOpenLog }: EmailCompos
                   <Paperclip aria-hidden className="text-muted-foreground size-4" />
                   {args.attachment ? (
                     <>
-                      <span className="font-mono text-xs [overflow-wrap:anywhere]">{docName(args.attachment)}</span>
+                      <span className="font-mono text-xs [overflow-wrap:anywhere]">{nameOf(args.attachment)}</span>
                       <Button size="sm" variant="ghost" className="h-7 px-2" onClick={() => setArg('attachment', undefined)}>
                         <X aria-hidden />
                         Remove
@@ -222,13 +255,25 @@ export function EmailComposer({ doc, onOpenReviewQueue, onOpenLog }: EmailCompos
             </div>
             {sentVerdict.verdict === 'ALLOW' && (
               <p className="text-allowed-ink text-sm">
-                {sent.result.outputs[0]?.startsWith('Delivered')
+                {sentOutput?.startsWith('Delivered')
                   ? 'Delivered to the local test inbox (nothing left this machine).'
                   : 'Recorded in the Outbox. Start Mailpit to see it arrive in a real inbox.'}
               </p>
             )}
             {sentVerdict.verdict === 'REVIEW' && <p className="text-review-ink text-sm">Held for a human. It waits in the Review Queue and is auto-denied after 10 minutes.</p>}
             {sentVerdict.verdict === 'BLOCK' && <p className="text-blocked-ink text-sm">Not sent. Edit the email and send again; every attempt is logged.</p>}
+            {sent.result.decisions.length > 1 && (
+              <ol className="flex flex-col gap-1.5">
+                {sent.result.proposed.map((c, i) => (
+                  <li key={i} className="flex flex-wrap items-center gap-2 rounded-md border px-3 py-1.5 text-sm">
+                    <span className="text-muted-foreground font-mono text-xs">Step {i + 1}</span>
+                    <span className="min-w-0 flex-1 font-mono text-xs [overflow-wrap:anywhere]">{(c as ToolCall).tool}</span>
+                    <span className="text-muted-foreground font-mono text-2xs">{sent.result.decisions[i].rules.map((r) => r.split('_')[0]).join(', ')}</span>
+                    <VerdictBadge verdict={sent.result.decisions[i].verdict} />
+                  </li>
+                ))}
+              </ol>
+            )}
             {sentVerdict.rules.length > 0 && <RuleReasonList rules={sentVerdict.rules} reasons={sentVerdict.reasons} verdict={sentVerdict.verdict} />}
             <div className="flex flex-wrap gap-2">
               {sentVerdict.verdict === 'ALLOW' && (
