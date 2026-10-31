@@ -24,8 +24,11 @@ def _summarise(document_id: str) -> str:
     doc = (DATA / document_id).resolve()
     if not doc.is_relative_to(DATA) or not doc.is_file():
         return f"Summary unavailable: {document_id} not found"
-    lines = [ln.strip() for ln in doc.read_text(encoding="utf-8", errors="replace").splitlines() if ln.strip()]
-    return "Summary: " + " | ".join(lines[:3])[:300]
+    from backend.extract import extract_text
+    from backend.screening import screen_resume
+
+    report = screen_resume(extract_text(doc))
+    return f"Summary: {report.summary}"
 
 
 def _send_email(to: str, subject: str, body: str, attachment: str | None = None) -> str:
@@ -59,6 +62,8 @@ _TOOLS = {
 }
 
 
-def execute(call: ToolCall) -> str:
+def execute(call: ToolCall, *, summary_override: str | None = None) -> str:
     """Run a sandbox adapter for an ALLOWED call; no external service is contacted."""
+    if call.tool == "summarise" and summary_override is not None:
+        return summary_override
     return _TOOLS[call.tool](**call.args)
