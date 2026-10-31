@@ -96,6 +96,15 @@ CREATE TABLE IF NOT EXISTS outbox (
     attachment TEXT,
     audit_id INTEGER NOT NULL
 );
+CREATE TABLE IF NOT EXISTS documents (
+    id TEXT PRIMARY KEY,
+    workspace_id INTEGER NOT NULL REFERENCES workspaces(id) ON DELETE CASCADE,
+    filename TEXT NOT NULL,
+    stored_path TEXT NOT NULL,
+    size_bytes INTEGER NOT NULL,
+    created_at REAL NOT NULL
+);
+CREATE INDEX IF NOT EXISTS documents_workspace_idx ON documents(workspace_id, created_at);
 """
 
 
@@ -486,3 +495,38 @@ def list_outbox(workspace_id: int = 1) -> list[dict]:
             (workspace_id,),
         )
         return [dict(r) for r in rows]
+
+
+def add_document(
+    document_id: str,
+    workspace_id: int,
+    filename: str,
+    stored_path: str,
+    size_bytes: int,
+) -> None:
+    with closing(_connect()) as conn, conn:
+        conn.execute(
+            "INSERT INTO documents (id, workspace_id, filename, stored_path, size_bytes, created_at)"
+            " VALUES (?, ?, ?, ?, ?, ?)",
+            (document_id, workspace_id, filename, stored_path, size_bytes, time.time()),
+        )
+
+
+def get_document(document_id: str, workspace_id: int) -> dict | None:
+    with closing(_connect()) as conn:
+        row = conn.execute(
+            "SELECT id, workspace_id, filename, stored_path, size_bytes, created_at"
+            " FROM documents WHERE id = ? AND workspace_id = ?",
+            (document_id, workspace_id),
+        ).fetchone()
+        return dict(row) if row else None
+
+
+def list_documents(workspace_id: int) -> list[dict]:
+    with closing(_connect()) as conn:
+        rows = conn.execute(
+            "SELECT id, filename, size_bytes, created_at FROM documents"
+            " WHERE workspace_id = ? ORDER BY created_at DESC, id",
+            (workspace_id,),
+        )
+        return [dict(row) for row in rows]

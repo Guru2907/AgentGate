@@ -1,9 +1,9 @@
-import { useEffect, useRef, useState, type ChangeEvent, type CSSProperties, type ReactNode } from 'react'
+import { useEffect, useRef, useState, type ChangeEvent, type CSSProperties, type DragEvent, type ReactNode } from 'react'
 import { toast } from 'sonner'
 import { CircleCheck, FileLock, Inbox, Play, RotateCcw, ScrollText, Send, ShieldCheck, ShieldX, TriangleAlert, Upload, UserCheck } from 'lucide-react'
 
 import type { RunResult, TaskId, ToolCall, Verdict } from '@/types'
-import { USE_MOCK } from '@/api'
+import { api, USE_MOCK } from '@/api'
 import { Alert, AlertDescription } from '@/components/ui/alert'
 import { Button } from '@/components/ui/button'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
@@ -20,6 +20,7 @@ import { PageHeader } from '@/components/PageHeader'
 import { PipelineStrip } from '@/components/PipelineStrip'
 import { RuleReasonList } from '@/components/RuleReason'
 import { RulesSheet } from '@/components/RulesSheet'
+import { ScreeningReport } from '@/components/ScreeningReport'
 import { ToolCallBlock } from '@/components/ToolCallBlock'
 import { VerdictBadge } from '@/components/VerdictBadge'
 import { docName, TASK_LABELS } from '@/lib/format'
@@ -46,6 +47,8 @@ export function RunTask({ onOpenReviewQueue, onOpenLog }: RunTaskProps) {
   const { state, updateRunSession, startRun } = useStore()
   const { task, documents, selected, phase } = state.runSession
   const [rulesOpen, setRulesOpen] = useState(false)
+  const [uploading, setUploading] = useState(false)
+  const [draggingFile, setDraggingFile] = useState(false)
   const fileInput = useRef<HTMLInputElement>(null)
   const resultRef = useRef<HTMLElement>(null)
 
@@ -72,19 +75,52 @@ export function RunTask({ onOpenReviewQueue, onOpenLog }: RunTaskProps) {
     return () => window.removeEventListener('keydown', onKey)
   }, [busy, startRun])
 
+  async function addFile(file?: File) {
+    if (!file) return
+    if (!/\.(txt|pdf|docx)$/i.test(file.name)) {
+      toast.error('Choose a PDF, DOCX, or TXT resume.')
+      return
+    }
+    if (file.size > 10 * 1024 * 1024) {
+      toast.error('Files must be 10 MB or smaller.')
+      return
+    }
+    if (USE_MOCK) {
+      const local = uploadedDocument(file.name)
+      updateRunSession({
+        documents: documents.some((d) => d.path === local.path) ? documents : [...documents, local],
+        selected: local.path,
+      })
+      toast('Offline prototype only: this file was not uploaded to the screening service.')
+      return
+    }
+
+    setUploading(true)
+    try {
+      const result = await api.upload(file)
+      const uploaded = { name: result.name, type: result.type, path: result.path } as const
+      updateRunSession({
+        documents: [...documents.filter((document) => document.path !== uploaded.path), uploaded],
+        selected: uploaded.path,
+      })
+      toast.success(`${file.name} uploaded and ready to screen.`)
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : 'Upload failed.')
+    } finally {
+      setUploading(false)
+    }
+  }
+
   function onFileChosen(e: ChangeEvent<HTMLInputElement>) {
     const file = e.target.files?.[0]
     e.target.value = ''
-    if (!file) return
-    if (!/\.(txt|pdf)$/i.test(file.name)) {
-      toast('Only .txt and .pdf documents are supported.')
-      return
-    }
-    updateRunSession({
-      documents: documents.some((d) => d.name === file.name) ? documents : [...documents, uploadedDocument(file.name)],
-      selected: file.name,
-    })
-    toast(`${file.name} added. Treated as a clean document in the offline prototype.`)
+    void addFile(file)
+  }
+
+  function onDropFile(e: DragEvent<HTMLDivElement>) {
+    e.preventDefault()
+    setDraggingFile(false)
+    void addFile(e.dataTransfer.files?.[0])
   }
 
   return (
@@ -125,14 +161,14 @@ export function RunTask({ onOpenReviewQueue, onOpenLog }: RunTaskProps) {
               <RadioGroup aria-labelledby="doc-label" value={selected} onValueChange={setSelected} className="gap-2">
                 {documents.map((d) => (
                   <Label
-                    key={d.name}
-                    htmlFor={`doc-${d.name}`}
+                    key={d.path}
+                    htmlFor={`doc-${encodeURIComponent(d.path)}`}
                     className={cn(
                       'hover:bg-accent flex min-w-0 cursor-pointer items-center gap-3 rounded-lg border px-3 py-2.5 font-normal transition-colors',
-                      selected === d.name && 'border-border-strong bg-accent',
+                      selected === d.path && 'border-border-strong bg-accent',
                     )}
                   >
-                    <RadioGroupItem id={`doc-${d.name}`} value={d.name} />
+                    <RadioGroupItem id={`doc-${encodeURIComponent(d.path)}`} value={d.path} />
                     <span className="min-w-0 flex-1 font-mono text-compact leading-snug break-all">{d.name}</span>
                     <DocTypeBadge type={d.type} />
                   </Label>
@@ -141,17 +177,37 @@ export function RunTask({ onOpenReviewQueue, onOpenLog }: RunTaskProps) {
             </div>
 
             <div className="flex flex-col gap-3">
-              {/* The backend runs only its own documents, so upload exists in the offline prototype only. */}
-              {USE_MOCK && (
-                <>
-                  <Input ref={fileInput} type="file" accept=".txt,.pdf" className="hidden" onChange={onFileChosen} tabIndex={-1} />
-                  <Button variant="outline" onClick={() => fileInput.current?.click()} disabled={busy}>
-                    <Upload aria-hidden />
-                    Upload document
-                  </Button>
-                </>
-              )}
-              <Button className="w-full" size="lg" onClick={() => start('run')} disabled={busy || documents.length === 0}>
+              <div
+                onDragOver={(e) => {
+                  e.preventDefault()
+                  setDraggingFile(true)
+                }}
+                onDragLeave={() => setDraggingFile(false)}
+                onDrop={onDropFile}
+                className={cn(
+                  'flex flex-col items-center gap-2 rounded-xl border border-dashed px-4 py-5 text-center transition-colors',
+                  draggingFile ? 'border-primary bg-primary/10' : 'border-border-strong bg-accent/40',
+                )}
+              >
+                <Input
+                  ref={fileInput}
+                  type="file"
+                  accept=".txt,.pdf,.docx"
+                  className="hidden"
+                  onChange={onFileChosen}
+                  tabIndex={-1}
+                />
+                <Upload aria-hidden className="text-primary size-5" />
+                <p className="text-sm font-medium">Drop a resume here</p>
+                <p className="text-muted-foreground text-xs">PDF, DOCX, or TXT · up to 10 MB</p>
+                <Button variant="outline" onClick={() => fileInput.current?.click()} disabled={busy || uploading}>
+                  {uploading ? 'Uploading…' : 'Browse files'}
+                </Button>
+                <p className="text-muted-foreground max-w-sm text-2xs leading-relaxed">
+                  Live screening sends resume text to the configured model provider. Offline mode uses a local estimate.
+                </p>
+              </div>
+              <Button className="w-full" size="lg" onClick={() => start('run')} disabled={busy || uploading || documents.length === 0}>
                 {busy ? <RotateCcw aria-hidden className="animate-spin motion-reduce:animate-none" /> : <Play aria-hidden />}
                 {busy ? 'Running…' : 'Run'}
                 {!busy && <kbd className="bg-primary-foreground/15 ml-1 hidden rounded px-1.5 py-0.5 font-mono text-2xs font-medium sm:inline">Ctrl ↵</kbd>}
@@ -291,12 +347,15 @@ function RunOutcome({ outcome, onOpenReviewQueue, onOpenLog }: RunOutcomeProps) 
       {request.task === 'email_company' ? (
         <EmailResult result={result} onOpenReviewQueue={onOpenReviewQueue} />
       ) : (
-        <SummaryResult result={result} focus={focus} />
+        <>
+          {result.screening && <ScreeningReport report={result.screening} />}
+          <SummaryResult result={result} focus={focus} />
+        </>
       )}
 
       {result.proposed.length > 1 && <StepsCard result={result} focus={focus} />}
 
-      {extras.hiddenText && (
+      {extras.hiddenText && !result.screening && (
         <Card className="ag-fade-up gap-2 py-3" style={{ '--ag-i': 2 } as CSSProperties}>
           <CardHeader className="px-4">
             <CardTitle>Hidden instruction found in the document</CardTitle>
