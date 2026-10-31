@@ -210,10 +210,21 @@ def _propose(task: str, text: str, doc: str, history: list | None = None) -> lis
     return fake_propose(task, doc, history)
 
 
-def _uploaded_fallback(task: str, doc: str, text: str, history: list | None = None) -> list:
-    """Give unseen uploads deterministic behavior when no saved proposal is available."""
-    hostile = bool(insights.hidden_instructions(text))
-    return fake_propose(task, "hostile/upload" if hostile else doc, history)
+def _propose_upload(task: str, text: str, doc: str, history: list | None = None) -> tuple[list, str]:
+    """Uploads have no saved answers, so ask the live AI agent what it would do with this document.
+
+    Whatever it proposes (fooled or not) goes to the gate as-is; nothing is substituted. Only if the
+    AI is unavailable (no key, rate limit, network) does a simple stand-in propose the normal action,
+    and the result says so (agent_mode="fallback").
+    """
+    from backend import agent
+
+    try:
+        calls = agent._propose_live(task, text, doc, history=history or None)
+        return [{k: v for k, v in c.items() if k != "_id"} for c in calls], "live"
+    except Exception as exc:
+        log.warning("live agent unavailable for upload (%s); using the stand-in agent", type(exc).__name__)
+        return fake_propose(task, doc, history), "fallback"
 
 
 def _as_record(raw) -> ToolCall | dict:
@@ -493,11 +504,12 @@ def run_task(req: RunRequest, session: dict = Depends(auth.require_write_user)) 
 
     if steps == 1:
         # Demo-safe default: one-shot propose (same shape as before issue #8).
-        hidden_attack = bool(instruction_text) and req.doc.startswith("uploads/")
-        raw_calls = _propose(req.task, text, req.doc)
-        if req.doc.startswith("uploads/") and (not raw_calls or hidden_attack):
-            raw_calls = _uploaded_fallback(req.task, req.doc, text)
-        return _process(
+        agent_mode = None
+        if req.doc.startswith("uploads/"):
+            raw_calls, agent_mode = _propose_upload(req.task, text, req.doc)
+        else:
+            raw_calls = _propose(req.task, text, req.doc)
+        result = _process(
             req.task,
             req.doc,
             raw_calls,
@@ -508,17 +520,20 @@ def run_task(req: RunRequest, session: dict = Depends(auth.require_write_user)) 
             screening=report,
             summary_override=summary_override,
         )
+        result.agent_mode = agent_mode
+        return result
 
     # Multi-step: agent sees prior outputs; stop when it proposes nothing or hits the step cap.
     ctx = gate.RunContext()
     proposed, decisions, outputs, extras = [], [], [], []
     hidden = hidden_text
     history: list[dict] = []
+    agent_mode = None
     for _ in range(steps):
-        hidden_attack = bool(instruction_text) and req.doc.startswith("uploads/")
-        batch = _propose(req.task, text, req.doc, history)
-        if req.doc.startswith("uploads/") and not history and (not batch or hidden_attack):
-            batch = _uploaded_fallback(req.task, req.doc, text, history)
+        if req.doc.startswith("uploads/"):
+            batch, agent_mode = _propose_upload(req.task, text, req.doc, history)
+        else:
+            batch = _propose(req.task, text, req.doc, history)
         if not batch:
             break
         # One tool call per step keeps the chain readable (read → email).
@@ -549,6 +564,7 @@ def run_task(req: RunRequest, session: dict = Depends(auth.require_write_user)) 
         outputs=outputs,
         extras=extras,
         screening=report,
+        agent_mode=agent_mode,
     )
 
 

@@ -72,6 +72,7 @@ class RunResult(_Strict):
     outputs: list[str]
     extras: list[CallExtras] = []  # same index as proposed; optional, so older clients are unaffected
     screening: ResumeScreening | None = None
+    agent_mode: str | None = None  # uploads: "live" (real AI) or "fallback" (AI unavailable)
 
 
 class LogEntry(_Strict):
