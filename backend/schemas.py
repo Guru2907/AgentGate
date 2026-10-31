@@ -5,7 +5,7 @@ Mirrored in frontend/src/api.ts — keep both in sync.
 
 from typing import Literal
 
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, EmailStr, Field, field_validator
 
 ToolName = Literal["summarise", "send_email", "read_file", "delete_file"]
 Verdict = Literal["ALLOW", "BLOCK", "REVIEW"]
@@ -36,6 +36,21 @@ class RunRequest(_Strict):
     doc: str  # path under data/, e.g. "hostile/resume_h01_hidden_email.txt"
 
 
+class Egress(_Strict):
+    """What a send_email would take out: recipient, attachment and the sensitive data spotted."""
+
+    recipient: str | None = None
+    attachment: str | None = None
+    detected: list[str] = []
+
+
+class CallExtras(_Strict):
+    """Per-call insight for the UI: hidden instructions found in the document, egress preview."""
+
+    hidden_text: str | None = None
+    egress: Egress | None = None
+
+
 class RunResult(_Strict):
     """Same index = same call. A call that did not run has output "(not executed)".
 
@@ -45,6 +60,7 @@ class RunResult(_Strict):
     proposed: list[ToolCall | dict]
     decisions: list[Decision]
     outputs: list[str]
+    extras: list[CallExtras] = []  # same index as proposed; optional, so older clients are unaffected
 
 
 class LogEntry(_Strict):
@@ -77,3 +93,86 @@ class ReviewDecision(_Strict):
 
     action: Literal["approve", "deny"]
     call_hash: str | None = None
+
+
+class RedTeamRequest(_Strict):
+    """Optional API for issue #10. Additive — existing clients ignore this model."""
+
+    n: int = Field(default=10, ge=1, le=20)
+    score_only: bool = False
+    templates: bool = False  # offline synthetic attacks (no Groq)
+
+
+class SignupRequest(_Strict):
+    full_name: str = Field(min_length=2, max_length=80)
+    email: EmailStr
+    password: str = Field(min_length=12, max_length=128)
+
+    @field_validator("full_name")
+    @classmethod
+    def clean_full_name(cls, value: str) -> str:
+        value = " ".join(value.split())
+        if len(value) < 2:
+            raise ValueError("Enter your full name.")
+        return value
+
+    @field_validator("email")
+    @classmethod
+    def normalize_email(cls, value: str) -> str:
+        return value.strip().casefold()
+
+
+class LoginRequest(_Strict):
+    email: EmailStr
+    password: str = Field(min_length=1, max_length=128)
+
+    @field_validator("email")
+    @classmethod
+    def normalize_email(cls, value: str) -> str:
+        return value.strip().casefold()
+
+
+class ProfileUpdateRequest(_Strict):
+    full_name: str = Field(min_length=2, max_length=80)
+
+    @field_validator("full_name")
+    @classmethod
+    def clean_full_name(cls, value: str) -> str:
+        value = " ".join(value.split())
+        if len(value) < 2:
+            raise ValueError("Enter your full name.")
+        return value
+
+
+class ChangePasswordRequest(_Strict):
+    current_password: str = Field(min_length=1, max_length=128)
+    new_password: str = Field(min_length=12, max_length=128)
+
+
+class PasswordResetRequest(_Strict):
+    email: EmailStr
+
+    @field_validator("email")
+    @classmethod
+    def normalize_email(cls, value: str) -> str:
+        return value.strip().casefold()
+
+
+class PasswordResetConfirmRequest(_Strict):
+    token: str = Field(min_length=32, max_length=128)
+    new_password: str = Field(min_length=12, max_length=128)
+
+
+class DeleteAccountRequest(_Strict):
+    password: str = Field(min_length=1, max_length=128)
+    confirmation: Literal["DELETE"]
+
+
+# Response shapes for POST /api/bench and POST /api/redteam (returned as plain dicts today).
+# Mirrored in frontend/src/types.ts as BenchResult / RedTeamResult — keep snake_case in sync.
+#
+# BenchResult: { total, attacks_blocked, attacks_passed, clean_allowed, false_alarms,
+#                per_case: [{ name, kind, expected, got, rules, pass, trick? }] }
+# RedTeamResult: BenchResult + { summary_line, rules_hit, generated?, templates?, cases_path? }
+# UI may derive attacksTotal = attacks_blocked + attacks_passed,
+#               cleanTotal = clean_allowed + false_alarms; API does not send those or lastRun.
