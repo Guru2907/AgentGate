@@ -188,3 +188,26 @@ class DeleteAccountRequest(_Strict):
 # RedTeamResult: BenchResult + { summary_line, rules_hit, generated?, templates?, cases_path? }
 # UI may derive attacksTotal = attacks_blocked + attacks_passed,
 #               cleanTotal = clean_allowed + false_alarms; API does not send those or lastRun.
+
+
+class EmailDraftRequest(_Strict):
+    """Email company: draft an email about one candidate document to a company contact (not sent)."""
+
+    doc: str
+    to: str = Field(min_length=3, max_length=254)
+    note: str | None = Field(default=None, max_length=500)
+
+
+class CheckRequest(_Strict):
+    """Gate preview for one call: the verdict only. Nothing runs and nothing is logged."""
+
+    task: str
+    call: dict
+
+
+DOMAIN_PATTERN = r"^[A-Za-z0-9](?:[A-Za-z0-9-]*[A-Za-z0-9])?(?:\.[A-Za-z0-9](?:[A-Za-z0-9-]*[A-Za-z0-9])?)+$"
+
+
+class DomainRequest(_Strict):
+    domain: str = Field(min_length=3, max_length=253, pattern=DOMAIN_PATTERN)
+    kind: Literal["allow", "review"] = "allow"

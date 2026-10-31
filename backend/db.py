@@ -530,3 +530,42 @@ def list_documents(workspace_id: int) -> list[dict]:
             (workspace_id,),
         )
         return [dict(row) for row in rows]
+
+
+# --- per-workspace company allowlist (merged over policy.yaml at check time) ---------------------
+
+
+def _ensure_domains_table(conn: sqlite3.Connection) -> None:
+    conn.execute(
+        "CREATE TABLE IF NOT EXISTS workspace_domains ("
+        " workspace_id INTEGER NOT NULL, domain TEXT NOT NULL,"
+        " kind TEXT NOT NULL CHECK(kind IN ('allow','review')), added_at TEXT NOT NULL,"
+        " PRIMARY KEY (workspace_id, domain))"
+    )
+
+
+def list_domains(workspace_id: int) -> list[dict]:
+    with closing(_connect()) as conn:
+        _ensure_domains_table(conn)
+        rows = conn.execute(
+            "SELECT domain, kind, added_at FROM workspace_domains WHERE workspace_id = ? ORDER BY domain",
+            (workspace_id,),
+        ).fetchall()
+    return [dict(r) for r in rows]
+
+
+def set_domain(workspace_id: int, domain: str, kind: str) -> None:
+    with closing(_connect()) as conn, conn:
+        _ensure_domains_table(conn)
+        conn.execute(
+            "INSERT INTO workspace_domains (workspace_id, domain, kind, added_at) VALUES (?, ?, ?, ?)"
+            " ON CONFLICT(workspace_id, domain) DO UPDATE SET kind = excluded.kind",
+            (workspace_id, domain, kind, datetime.now(timezone.utc).isoformat()),
+        )
+
+
+def remove_domain(workspace_id: int, domain: str) -> bool:
+    with closing(_connect()) as conn, conn:
+        _ensure_domains_table(conn)
+        cur = conn.execute("DELETE FROM workspace_domains WHERE workspace_id = ? AND domain = ?", (workspace_id, domain))
+        return cur.rowcount > 0

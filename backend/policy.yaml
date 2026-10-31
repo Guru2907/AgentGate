@@ -15,7 +15,7 @@ tasks:
     files:
       # placement_list is in scope for read (chain-attack demo); R4 still blocks
       # attaching it, and R9 blocks emailing after a sensitive read in the same run.
-      scope: ["sandbox/resumes/*", "sandbox/placement_list.xlsx"]
+      scope: ["sandbox/resumes/*", "uploads/*", "sandbox/placement_list.xlsx"]   # uploads/* = resumes the user uploaded
 
   placement_report:                        # staff task that may READ confidential files
     allowed_tools: [read_file, send_email]
@@ -32,7 +32,7 @@ global:
     - "*payroll*"
   data_labels:                             # R9: what content counts as once it has been read
     confidential: ["sandbox/placement_list.xlsx", "sandbox/salary*", "*payroll*"]
-    personal: ["sandbox/resumes/*"]
+    personal: ["sandbox/resumes/*", "uploads/*"]
   sensitive_patterns:                      # R5/R10: private data that must not leave (also when encoded)
     phone: '(?<!\d)(?:\+?91[\s-]?)?[6-9]\d{4}[\s-]?\d{5}(?!\d)'
     id_number: '(?<!\d)\d{4}[\s-]?\d{4}[\s-]?\d{4}(?!\d)'

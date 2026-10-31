@@ -6,6 +6,7 @@ approval is bound to the exact call the reviewer saw (R11).
 """
 
 import json
+import copy
 import logging
 import os
 import sqlite3
@@ -23,8 +24,11 @@ from backend import auth, db, gate, insights, tools
 from backend.schemas import (
     CallExtras,
     ChangePasswordRequest,
+    CheckRequest,
     DeleteAccountRequest,
     Decision,
+    DomainRequest,
+    EmailDraftRequest,
     InjectRequest,
     LoginRequest,
     LogEntry,
@@ -424,25 +428,30 @@ def _process_one(
     ctx: gate.RunContext,
     workspace_id: int = 1,
     summary_override: str | None = None,
+    policy: dict | None = None,
 ) -> tuple:
     """Gate one proposed call, maybe execute it, log it, update RunContext."""
+    policy = policy or POLICY
     record = _as_record(raw)
-    decision = gate.check(raw, task, POLICY, ctx)
+    decision = gate.check(raw, task, policy, ctx)
     executed = False
     output = NOT_EXECUTED
     if decision.verdict == "ALLOW":  # the ONLY path to a tool
+        token = tools.CURRENT_WORKSPACE.set(workspace_id)
         try:
             output = tools.execute(record, summary_override=summary_override)
             executed = True
         except Exception as exc:
             output = f"Tool error: {exc}"
+        finally:
+            tools.CURRENT_WORKSPACE.reset(token)
     audit_id = db.save(task, doc, record, decision, executed, source, workspace_id)
     if executed and isinstance(record, ToolCall) and record.tool == "send_email":
         db.add_outbox(record, audit_id, workspace_id)
     if decision.verdict == "REVIEW":
         review_id = db.add_review(audit_id, task, doc, record, _review_timeout_min(), workspace_id)
         output = f"(waiting for human review #{review_id})"
-    ctx.record(record, decision, output, POLICY)
+    ctx.record(record, decision, output, policy)
     return record, decision, output
 
 
@@ -456,19 +465,21 @@ def _process(
     hidden_text: str | None = None,
     screening: ResumeScreening | None = None,
     summary_override: str | None = None,
+    policy: dict | None = None,
 ) -> RunResult:
     """Judge every proposed call in order with one shared RunContext; run tools only on ALLOW."""
+    policy = policy or POLICY
     ctx = gate.RunContext()
     proposed, decisions, outputs, extras = [], [], [], []
     hidden = hidden_text if hidden_text is not None else insights.hidden_instructions(text)
     for raw in raw_calls:
         record, decision, output = _process_one(
-            task, doc, raw, source, ctx, workspace_id, summary_override
+            task, doc, raw, source, ctx, workspace_id, summary_override, policy
         )
         proposed.append(record)
         decisions.append(decision)
         outputs.append(output)
-        extras.append(CallExtras(hidden_text=hidden, egress=insights.egress_preview(record, POLICY)))
+        extras.append(CallExtras(hidden_text=hidden, egress=insights.egress_preview(record, policy)))
     return RunResult(
         proposed=proposed,
         decisions=decisions,
@@ -519,6 +530,7 @@ def run_task(req: RunRequest, session: dict = Depends(auth.require_write_user)) 
             hidden_text=hidden_text,
             screening=report,
             summary_override=summary_override,
+            policy=workspace_policy(workspace_id),
         )
         result.agent_mode = agent_mode
         return result
@@ -546,11 +558,12 @@ def run_task(req: RunRequest, session: dict = Depends(auth.require_write_user)) 
             ctx,
             workspace_id,
             summary_override,
+            workspace_policy(workspace_id),
         )
         proposed.append(record)
         decisions.append(decision)
         outputs.append(output)
-        extras.append(CallExtras(hidden_text=hidden, egress=insights.egress_preview(record, POLICY)))
+        extras.append(CallExtras(hidden_text=hidden, egress=insights.egress_preview(record, workspace_policy(workspace_id))))
         call_dict = (
             {"tool": record.tool, "args": record.args}
             if isinstance(record, ToolCall)
@@ -571,7 +584,9 @@ def run_task(req: RunRequest, session: dict = Depends(auth.require_write_user)) 
 @app.post("/api/inject")
 def inject_calls(req: InjectRequest, session: dict = Depends(auth.require_write_user)) -> RunResult:
     """Raw tool calls straight to the gate (no LLM), through exactly the same path as /api/run."""
-    return _process(req.task, INJECT_DOC, req.calls, "inject", workspace_id=session["workspace_id"])
+    workspace_id = session["workspace_id"]
+    return _process(req.task, INJECT_DOC, req.calls, "inject", workspace_id=workspace_id,
+                    policy=workspace_policy(workspace_id))
 
 
 @app.get("/api/logs")
@@ -672,12 +687,13 @@ def run_bench(
 @app.get("/api/bench/latest")
 def bench_latest(
     dataset: str = "eval",
+    mode: str | None = None,
     _: dict = Depends(auth.require_user),
 ) -> dict:
-    """Return the newest eval results JSON from data/eval/results/ (no re-run)."""
+    """Return the newest eval results JSON from data/eval/results/ (no re-run); mode=replay|live filters."""
     from backend import bench
 
-    data = bench.latest_eval_result(dataset=dataset)
+    data = bench.latest_eval_result(dataset=dataset, mode=mode)
     if data is None:
         raise HTTPException(status_code=404, detail="no eval results yet")
     return data
@@ -707,8 +723,8 @@ def run_redteam(
 
 
 @app.get("/api/policy")
-def get_policy(_: dict = Depends(auth.require_user)) -> dict:
-    return {k: v for k, v in POLICY.items() if not k.startswith("_")}
+def get_policy(session: dict = Depends(auth.require_user)) -> dict:
+    return {k: v for k, v in workspace_policy(session["workspace_id"]).items() if not k.startswith("_")}
 
 
 @app.get("/api/outbox")
@@ -735,3 +751,107 @@ def tests_manual(_: dict = Depends(auth.require_user)) -> list[dict]:
         raise HTTPException(status_code=404, detail="manual test matrix missing")
     with path.open(encoding="utf-8", newline="") as f:
         return list(csv.DictReader(f))
+
+
+# --- Email company: draft -> preview -> send (send = /api/inject, the normal gate path) -----------
+
+EMAIL_TASK = "email_company"
+
+
+def workspace_policy(workspace_id: int) -> dict:
+    """policy.yaml plus this workspace's company domains. The global POLICY is never mutated."""
+    extra = db.list_domains(workspace_id)
+    if not extra:
+        return POLICY
+    policy = copy.deepcopy(POLICY)
+    recipients = policy.setdefault("tasks", {}).setdefault(EMAIL_TASK, {}).setdefault("recipients", {})
+    for row in extra:
+        key = "allow_domains" if row["kind"] == "allow" else "review_domains"
+        domains = recipients.setdefault(key, [])
+        if row["domain"] not in domains:
+            domains.append(row["domain"])
+    return policy
+
+
+def _template_draft(text: str, doc: str, to: str, note: str | None) -> dict:
+    """Stand-in draft when the AI is unavailable: a plain, honest template."""
+    name = next((ln.strip() for ln in text.splitlines() if ln.strip()), "the candidate")[:80]
+    body = f"Dear Hiring Team,\n\nPlease find attached the profile of {name}."
+    if note:
+        body += f" {note.strip()}"
+    body += "\n\nBest regards,\nPlacement Cell"
+    return {"tool": "send_email", "args": {"to": to, "subject": f"Candidate profile: {name}", "body": body, "attachment": doc}}
+
+
+@app.post("/api/email/draft")
+def draft_email(req: EmailDraftRequest, session: dict = Depends(auth.require_write_user)) -> dict:
+    """The agent drafts an email about the candidate. Not sent and not logged: the user edits, then sends."""
+    from backend import agent
+
+    workspace_id = session["workspace_id"]
+    text = _read_doc(_resolve_doc(req.doc, workspace_id))
+    request = f"Draft an email to {req.to} about this candidate and attach their document ({req.doc})."
+    if req.note:
+        request += f" Note from the recruiter: {req.note}"
+    try:
+        calls = [{k: v for k, v in c.items() if k != "_id"} for c in agent._propose_live(EMAIL_TASK, text, req.doc, request=request)]
+        agent_mode = "live"
+    except Exception as exc:
+        log.warning("live agent unavailable for draft (%s); using a template", type(exc).__name__)
+        calls, agent_mode = [], "fallback"
+    if not calls:
+        calls, agent_mode = [_template_draft(text, req.doc, req.to, req.note)], "fallback"  # AI gave no call
+    policy = workspace_policy(workspace_id)
+    previews = [gate.check(c, EMAIL_TASK, policy).model_dump() for c in calls]
+    return {
+        "calls": calls,  # usually one send_email; a fooled agent may propose something else, shown as-is
+        "previews": previews,
+        "agent_mode": agent_mode,
+        "hidden_text": insights.hidden_instructions(text),
+    }
+
+
+@app.post("/api/check")
+def check_call(req: CheckRequest, session: dict = Depends(auth.require_write_user)) -> dict:
+    """Preview the gate's verdict for one call. Nothing runs and nothing is logged; Send decides for real."""
+    return gate.check(req.call, req.task, workspace_policy(session["workspace_id"])).model_dump()
+
+
+@app.get("/api/allowlist")
+def get_allowlist(session: dict = Depends(auth.require_user)) -> dict:
+    recipients = POLICY.get("tasks", {}).get(EMAIL_TASK, {}).get("recipients", {})
+    return {
+        "builtin": {"allow": recipients.get("allow_domains", []), "review": recipients.get("review_domains", [])},
+        "workspace": db.list_domains(session["workspace_id"]),
+        "inbox_url": mailer_inbox_url(),
+    }
+
+
+def mailer_inbox_url() -> str:
+    from backend import mailer
+
+    return mailer.inbox_url()
+
+
+def _log_policy_change(workspace_id: int, domain: str, kind: str, action: str) -> None:
+    """Who changed the allowlist and when goes into the hash-chained audit log."""
+    decision = Decision(verdict="ALLOW", rules=["POLICY_CHANGE"], reasons=[f"{action} {domain} ({kind}) in the company allowlist"])
+    db.save(EMAIL_TASK, "(allowlist)", {"tool": "policy_change", "args": {"domain": domain, "kind": kind, "action": action}},
+            decision, False, "run", workspace_id)
+
+
+@app.post("/api/allowlist")
+def add_allowlist(req: DomainRequest, session: dict = Depends(auth.require_write_user)) -> dict:
+    domain = req.domain.lower()
+    db.set_domain(session["workspace_id"], domain, req.kind)
+    _log_policy_change(session["workspace_id"], domain, req.kind, "added")
+    return {"ok": True}
+
+
+@app.delete("/api/allowlist/{domain}")
+def remove_allowlist(domain: str, session: dict = Depends(auth.require_write_user)) -> dict:
+    domain = domain.lower()
+    if not db.remove_domain(session["workspace_id"], domain):
+        raise HTTPException(status_code=404, detail=f"{domain} is not in your allowlist")
+    _log_policy_change(session["workspace_id"], domain, "-", "removed")
+    return {"ok": True}

@@ -87,12 +87,13 @@ def _write_eval_result(summary: dict, *, mode: str) -> Path:
     return path
 
 
-def latest_eval_result(*, dataset: str = "eval") -> dict | None:
-    """Newest results JSON under data/eval/results/ (eval-*.json preferred)."""
+def latest_eval_result(*, dataset: str = "eval", mode: str | None = None) -> dict | None:
+    """Newest results JSON under data/eval/results/; mode="replay"|"live" picks that kind of run."""
     if dataset != "eval" or not EVAL_RESULTS_DIR.is_dir():
         return None
+    pattern = f"eval-{mode}-*.json" if mode in ("replay", "live") else "eval-*.json"
     files = sorted(
-        [p for p in EVAL_RESULTS_DIR.glob("eval-*.json") if p.is_file()],
+        [p for p in EVAL_RESULTS_DIR.glob(pattern) if p.is_file()],
         key=lambda p: p.stat().st_mtime,
         reverse=True,
     )
