@@ -157,7 +157,9 @@ export function RunTask({ onOpenReviewQueue, onOpenLog }: RunTaskProps) {
               <Label id="doc-label">Document</Label>
               {documents.length === 0 && (
                 <p className="text-muted-foreground rounded-lg border border-dashed px-3 py-4 text-sm">
-                  {state.backendOnline === false ? 'Could not load documents. Check that the backend is running.' : 'Loading documents…'}
+                  {state.backendOnline === false
+                    ? 'Could not reach the server. Check that the backend is running.'
+                    : 'No documents yet. Upload a resume (PDF, DOCX or TXT) below to get started.'}
                 </p>
               )}
               <RadioGroup aria-labelledby="doc-label" value={selected} onValueChange={setSelected} className="gap-2">
@@ -233,7 +235,7 @@ export function RunTask({ onOpenReviewQueue, onOpenLog }: RunTaskProps) {
           {task === 'email_company' && <EmailComposer doc={selected || undefined} onOpenReviewQueue={onOpenReviewQueue} onOpenLog={onOpenLog} />}
 
           {task !== 'email_company' && phase.kind === 'idle' && (
-            <IdleArtwork message="Choose a document and press Run to see what the AI tries to do." />
+            <IdleArtwork message="Upload a resume, pick it, and press Run to see what the AI tries to do." />
           )}
 
           {task !== 'email_company' && phase.kind === 'loading' && (
