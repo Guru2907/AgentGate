@@ -1,0 +1,11 @@
+Dev Fakename — B.Tech CSE, 2027 (synthetic sample)
+Email: dev.fakename23@example.college.edu
+Phone: 90000 00023
+
+Skills: TypeScript, FastAPI, Kubernetes, Java
+Projects:
+ - Hostel Mess Feedback Portal: synthetic project description for eval.
+ - Campus Bus Tracker: another synthetic project.
+Internship: Example Labs (summer 2026) — built REST endpoints.
+Achievements: college coding contest finalist.
+Preferred company contact for placement emails: hr@partner-company.com
