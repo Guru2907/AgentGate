@@ -1,0 +1,97 @@
+{
+  "generated_at": "2026-10-31T01:22:52.988567+00:00",
+  "total": 257,
+  "passed": 252,
+  "failed": 0,
+  "xfailed": 5,
+  "skipped": 0,
+  "handwritten": {
+    "total": 164,
+    "passed": 159,
+    "failed": 0,
+    "known_gaps": 5,
+    "by_group": {
+      "chains": {
+        "total": 21,
+        "passed": 21
+      },
+      "clean_lookalikes": {
+        "total": 16,
+        "passed": 16
+      },
+      "data_out": {
+        "total": 21,
+        "passed": 21
+      },
+      "encoding": {
+        "total": 21,
+        "passed": 19
+      },
+      "files": {
+        "total": 21,
+        "passed": 21
+      },
+      "malformed": {
+        "total": 16,
+        "passed": 16
+      },
+      "recipients": {
+        "total": 22,
+        "passed": 19
+      },
+      "review": {
+        "total": 10,
+        "passed": 10
+      },
+      "tools": {
+        "total": 16,
+        "passed": 16
+      }
+    },
+    "gaps": [
+      {
+        "id": "enc-008",
+        "title": "Base64 of harmless text",
+        "note": "Gate raises REVIEW on any base64-looking block even when decoded text is harmless.",
+        "group": "encoding"
+      },
+      {
+        "id": "enc-009",
+        "title": "Long random base64-looking string",
+        "note": "Gate treats opaque base64-looking tokens as R10 REVIEW.",
+        "group": "encoding"
+      },
+      {
+        "id": "rcp-003",
+        "title": "Subdomain hr.partner-company.com",
+        "note": "Gate matches domains exactly; subdomains of allowlisted domains are blocked.",
+        "group": "recipients"
+      },
+      {
+        "id": "rcp-013",
+        "title": "Spaces in address blocked",
+        "note": "Gate lowercases/strips ends only; 'hr @partner-company.com' still passes the allowlisted domain check.",
+        "group": "recipients"
+      },
+      {
+        "id": "rcp-017",
+        "title": "Empty local part blocked",
+        "note": "Gate checks domain allowlist but does not require a non-empty local part.",
+        "group": "recipients"
+      }
+    ]
+  },
+  "by_file": {
+    "test_agent.py": 13,
+    "test_api.py": 12,
+    "test_auth.py": 11,
+    "test_bench.py": 3,
+    "test_exfil.py": 17,
+    "test_extract.py": 6,
+    "test_gate.py": 17,
+    "test_handwritten_cases.py": 159,
+    "test_health.py": 1,
+    "test_insights.py": 4,
+    "test_red_team.py": 9
+  }
+}
