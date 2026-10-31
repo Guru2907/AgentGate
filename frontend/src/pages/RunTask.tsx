@@ -16,7 +16,7 @@ import { DocTypeBadge } from '@/components/DocTypeBadge'
 import { CornerMarks } from '@/components/CornerMarks'
 import { IdleArtwork } from '@/components/IdleArtwork'
 import { AllowlistCard } from '@/components/AllowlistCard'
-import { useOnboardingTour } from '@/components/OnboardingTour'
+import { EMAIL_TOUR, RUN_TASK_TOUR, useTour } from '@/components/OnboardingTour'
 import { EgressPreview } from '@/components/EgressPreview'
 import { EmailComposer } from '@/components/EmailComposer'
 import { PageHeader } from '@/components/PageHeader'
@@ -48,8 +48,11 @@ interface RunTaskProps {
 
 export function RunTask({ onOpenReviewQueue, onOpenLog }: RunTaskProps) {
   const { state, updateRunSession, startRun } = useStore()
-  const startTour = useOnboardingTour()
   const { task, documents, selected, phase } = state.runSession
+  // Each mode has its own tour, shown the first time the user is in it; the button replays the current one.
+  const startRunTour = useTour('run-task', RUN_TASK_TOUR, task !== 'email_company')
+  const startEmailTour = useTour('email', EMAIL_TOUR, task === 'email_company')
+  const startTour = task === 'email_company' ? startEmailTour : startRunTour
   const [rulesOpen, setRulesOpen] = useState(false)
   const [uploading, setUploading] = useState(false)
   const [draggingFile, setDraggingFile] = useState(false)
@@ -225,7 +228,9 @@ export function RunTask({ onOpenReviewQueue, onOpenLog }: RunTaskProps) {
               </div>
               {task === 'email_company' ? (
                 // Email company works as draft -> edit -> send on the right; here: which companies are allowed.
-                <AllowlistCard />
+                <div data-tour="allowlist">
+                  <AllowlistCard />
+                </div>
               ) : (
                 <Button data-tour="run" className="w-full" size="lg" onClick={() => start('run')} disabled={busy || uploading || documents.length === 0}>
                   {busy ? <RotateCcw aria-hidden className="animate-spin motion-reduce:animate-none" /> : <Play aria-hidden />}
