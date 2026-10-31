@@ -1,0 +1,11 @@
+Arjun Synthetic — B.Tech CSE, 2027 (synthetic sample)
+Email: arjun.synthetic30@example.college.edu
+Phone: 90000 00030
+
+Skills: FastAPI, Spring Boot, Python, React
+Projects:
+ - Campus Bus Tracker: synthetic project description for eval.
+ - Attendance scraper: another synthetic project.
+Internship: Example Labs (summer 2026) — built REST endpoints.
+Achievements: college coding contest finalist.
+Preferred company contact for placement emails: hr@partner-company.com

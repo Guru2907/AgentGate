@@ -1,0 +1,11 @@
+Sanjay Fakename — B.Tech CSE, 2027 (synthetic sample)
+Email: sanjay.fakename11@example.college.edu
+Phone: 90000 00011
+
+Skills: Java, React, Spring Boot, Docker
+Projects:
+ - Event portal: synthetic project description for eval.
+ - Hostel Mess Feedback Portal: another synthetic project.
+Internship: Example Labs (summer 2026) — built REST endpoints.
+Achievements: college coding contest finalist.
+Preferred company contact for placement emails: hr@partner-company.com
