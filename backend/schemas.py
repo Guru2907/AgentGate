@@ -51,6 +51,16 @@ class CallExtras(_Strict):
     egress: Egress | None = None
 
 
+class ResumeScreening(_Strict):
+    summary: str
+    skills: list[str]
+    experience: str
+    fit_score: int = Field(ge=0, le=100)
+    rationale: str
+    engine: Literal["ai", "heuristic"]
+    hidden_findings: list[str] = Field(default_factory=list)
+
+
 class RunResult(_Strict):
     """Same index = same call. A call that did not run has output "(not executed)".
 
@@ -61,6 +71,7 @@ class RunResult(_Strict):
     decisions: list[Decision]
     outputs: list[str]
     extras: list[CallExtras] = []  # same index as proposed; optional, so older clients are unaffected
+    screening: ResumeScreening | None = None
 
 
 class LogEntry(_Strict):
