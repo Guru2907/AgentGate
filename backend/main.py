@@ -13,7 +13,7 @@ from contextlib import asynccontextmanager
 from pathlib import Path
 
 from dotenv import load_dotenv
-from fastapi import Body, Depends, FastAPI, HTTPException, Request, Response
+from fastapi import Body, Depends, FastAPI, File, HTTPException, Request, Response, UploadFile
 from fastapi.exceptions import RequestValidationError
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
@@ -32,6 +32,7 @@ from backend.schemas import (
     ProfileUpdateRequest,
     RedTeamRequest,
     ReviewDecision,
+    ResumeScreening,
     RunRequest,
     RunResult,
     SignupRequest,
@@ -44,7 +45,7 @@ log = logging.getLogger("agentgate")
 ROOT = Path(__file__).resolve().parents[1]
 DATA = ROOT / "data"
 DOC_FOLDERS = ("clean", "hostile")
-DOC_TYPES = (".txt", ".pdf")
+DOC_TYPES = (".txt", ".pdf", ".docx")
 NOT_EXECUTED = "(not executed)"
 INJECT_DOC = "(injected)"
 # AGENT_STEPS=1 (default): one-shot propose, demo-safe. AGENT_STEPS=3: multi-step loop (issue #8).
@@ -107,8 +108,18 @@ def _not_yet(feature: str) -> HTTPException:
     return HTTPException(status_code=501, detail=f"{feature} not implemented yet")
 
 
-def _resolve_doc(doc: str) -> Path:
+def _resolve_doc(doc: str, workspace_id: int = 1) -> Path:
     """Only files directly inside data/clean or data/hostile; no traversal, no other folders."""
+    if doc.startswith("uploads/"):
+        from backend import uploads
+
+        try:
+            return uploads.resolve_upload(doc, workspace_id)
+        except ValueError as exc:
+            raise HTTPException(status_code=400, detail=str(exc)) from exc
+        except FileNotFoundError as exc:
+            raise HTTPException(status_code=404, detail="Uploaded document not found.") from exc
+
     path = (DATA / doc).resolve()
     if path.parent not in {(DATA / f).resolve() for f in DOC_FOLDERS} or path.suffix.lower() not in DOC_TYPES:
         raise HTTPException(status_code=400, detail=f"doc must be a .txt or .pdf file in data/clean or data/hostile: {doc}")
@@ -196,6 +207,12 @@ def _propose(task: str, text: str, doc: str, history: list | None = None) -> lis
         except Exception as exc:  # demo must not die if the LLM is down: fall back to the fake agent
             log.warning("agent failed (%s); falling back to fake agent", exc)
     return fake_propose(task, doc, history)
+
+
+def _uploaded_fallback(task: str, doc: str, text: str, history: list | None = None) -> list:
+    """Give unseen uploads deterministic behavior when no saved proposal is available."""
+    hostile = bool(insights.hidden_instructions(text))
+    return fake_propose(task, "hostile/upload" if hostile else doc, history)
 
 
 def _as_record(raw) -> ToolCall | dict:
@@ -359,11 +376,43 @@ def list_docs(_: dict = Depends(auth.require_user)) -> list[str]:
     )
 
 
+@app.get("/api/uploads")
+def list_uploads(session: dict = Depends(auth.require_user)) -> list[dict]:
+    from backend import uploads
+
+    return uploads.list_uploads(session["workspace_id"])
+
+
+@app.post("/api/uploads", status_code=201)
+async def upload_resume(
+    file: UploadFile = File(...),
+    session: dict = Depends(auth.require_write_user),
+) -> dict:
+    from backend import uploads
+
+    content = await file.read(uploads.MAX_UPLOAD_BYTES + 1)
+    await file.close()
+    if len(content) > uploads.MAX_UPLOAD_BYTES:
+        raise HTTPException(status_code=413, detail="Files must be 10 MB or smaller.")
+    try:
+        return uploads.save_upload(file.filename or "", content, session["workspace_id"])
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+
 def _review_timeout_min() -> float:
     return float(os.getenv("REVIEW_TIMEOUT_MIN", "10"))
 
 
-def _process_one(task: str, doc: str, raw, source: str, ctx: gate.RunContext, workspace_id: int = 1) -> tuple:
+def _process_one(
+    task: str,
+    doc: str,
+    raw,
+    source: str,
+    ctx: gate.RunContext,
+    workspace_id: int = 1,
+    summary_override: str | None = None,
+) -> tuple:
     """Gate one proposed call, maybe execute it, log it, update RunContext."""
     record = _as_record(raw)
     decision = gate.check(raw, task, POLICY, ctx)
@@ -371,7 +420,7 @@ def _process_one(task: str, doc: str, raw, source: str, ctx: gate.RunContext, wo
     output = NOT_EXECUTED
     if decision.verdict == "ALLOW":  # the ONLY path to a tool
         try:
-            output = tools.execute(record)
+            output = tools.execute(record, summary_override=summary_override)
             executed = True
         except Exception as exc:
             output = f"Tool error: {exc}"
@@ -386,43 +435,102 @@ def _process_one(task: str, doc: str, raw, source: str, ctx: gate.RunContext, wo
 
 
 def _process(
-    task: str, doc: str, raw_calls: list, source: str, text: str = "", workspace_id: int = 1
+    task: str,
+    doc: str,
+    raw_calls: list,
+    source: str,
+    text: str = "",
+    workspace_id: int = 1,
+    hidden_text: str | None = None,
+    screening: ResumeScreening | None = None,
+    summary_override: str | None = None,
 ) -> RunResult:
     """Judge every proposed call in order with one shared RunContext; run tools only on ALLOW."""
     ctx = gate.RunContext()
     proposed, decisions, outputs, extras = [], [], [], []
-    hidden = insights.hidden_instructions(text)
+    hidden = hidden_text if hidden_text is not None else insights.hidden_instructions(text)
     for raw in raw_calls:
-        record, decision, output = _process_one(task, doc, raw, source, ctx, workspace_id)
+        record, decision, output = _process_one(
+            task, doc, raw, source, ctx, workspace_id, summary_override
+        )
         proposed.append(record)
         decisions.append(decision)
         outputs.append(output)
         extras.append(CallExtras(hidden_text=hidden, egress=insights.egress_preview(record, POLICY)))
-    return RunResult(proposed=proposed, decisions=decisions, outputs=outputs, extras=extras)
+    return RunResult(
+        proposed=proposed,
+        decisions=decisions,
+        outputs=outputs,
+        extras=extras,
+        screening=screening,
+    )
 
 
 @app.post("/api/run")
 def run_task(req: RunRequest, session: dict = Depends(auth.require_write_user)) -> RunResult:
+    from backend import extract, screening as resume_screening
+
     workspace_id = session["workspace_id"]
-    text = _read_doc(_resolve_doc(req.doc))
+    analysis = extract.analyze_document(_resolve_doc(req.doc, workspace_id))
+    text = analysis.text
+    hidden_findings = list(analysis.hidden_findings)
+    instruction_text = insights.hidden_instructions(text)
+    if instruction_text:
+        hidden_findings.append(f"Instruction-like text: {instruction_text[:500]}")
+    metadata_instructions = insights.hidden_instructions(analysis.metadata_text)
+    if metadata_instructions:
+        hidden_findings.append(f"Instruction-like document metadata: {metadata_instructions[:500]}")
+    hidden_findings = list(dict.fromkeys(hidden_findings))
+    hidden_text = "\n".join(hidden_findings) or None
+    report = (
+        resume_screening.screen_resume(text, hidden_findings)
+        if req.task == "summarise_resume"
+        else None
+    )
+    summary_override = f"Summary: {report.summary}" if report else None
     steps = _agent_steps()
 
     if steps == 1:
         # Demo-safe default: one-shot propose (same shape as before issue #8).
-        return _process(req.task, req.doc, _propose(req.task, text, req.doc), "run", text=text, workspace_id=workspace_id)
+        hidden_attack = bool(instruction_text) and req.doc.startswith("uploads/")
+        raw_calls = _propose(req.task, text, req.doc)
+        if req.doc.startswith("uploads/") and (not raw_calls or hidden_attack):
+            raw_calls = _uploaded_fallback(req.task, req.doc, text)
+        return _process(
+            req.task,
+            req.doc,
+            raw_calls,
+            "run",
+            text=text,
+            workspace_id=workspace_id,
+            hidden_text=hidden_text,
+            screening=report,
+            summary_override=summary_override,
+        )
 
     # Multi-step: agent sees prior outputs; stop when it proposes nothing or hits the step cap.
     ctx = gate.RunContext()
     proposed, decisions, outputs, extras = [], [], [], []
-    hidden = insights.hidden_instructions(text)
+    hidden = hidden_text
     history: list[dict] = []
     for _ in range(steps):
+        hidden_attack = bool(instruction_text) and req.doc.startswith("uploads/")
         batch = _propose(req.task, text, req.doc, history)
+        if req.doc.startswith("uploads/") and not history and (not batch or hidden_attack):
+            batch = _uploaded_fallback(req.task, req.doc, text, history)
         if not batch:
             break
         # One tool call per step keeps the chain readable (read → email).
         raw = batch[0]
-        record, decision, output = _process_one(req.task, req.doc, raw, "run", ctx, workspace_id)
+        record, decision, output = _process_one(
+            req.task,
+            req.doc,
+            raw,
+            "run",
+            ctx,
+            workspace_id,
+            summary_override,
+        )
         proposed.append(record)
         decisions.append(decision)
         outputs.append(output)
@@ -434,7 +542,13 @@ def run_task(req: RunRequest, session: dict = Depends(auth.require_write_user)) 
         )
         history.append({"call": call_dict, "output": output, "verdict": decision.verdict})
 
-    return RunResult(proposed=proposed, decisions=decisions, outputs=outputs, extras=extras)
+    return RunResult(
+        proposed=proposed,
+        decisions=decisions,
+        outputs=outputs,
+        extras=extras,
+        screening=report,
+    )
 
 
 @app.post("/api/inject")
