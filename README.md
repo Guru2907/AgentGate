@@ -264,6 +264,11 @@ python -m pytest -q
 | `SMTP_*` | Only for password-reset emails (optional) | n/a |
 | `MAILPIT_HOST` / `MAILPIT_SMTP_PORT` / `MAILPIT_UI` | Local test inbox for Email company (localhost only) | `localhost` / `1025` / `http://localhost:8025` |
 
+### Deploy (hosted demo)
+- **Backend → Render** (free web service): New → Blueprint → this repo (uses [`render.yaml`](render.yaml)). Set the secret env vars: `APP_ORIGINS` (your Vercel URL), `GROQ_API_KEY`, `GROQ_MODEL`, `DEMO_EMAIL`, `DEMO_PASSWORD`.
+- **Frontend → Vercel**: import the repo, root directory `frontend`, framework Vite. Put your Render URL in [`frontend/vercel.json`](frontend/vercel.json); Vercel forwards `/api/*` to Render, so the app and API share one domain (cookies and CSRF work unchanged).
+- The free Render disk is wiped on each deploy/restart (audit log, accounts and uploads start empty); the demo account from `DEMO_EMAIL`/`DEMO_PASSWORD` is recreated on every start. The first request after idle can take ~50 s (free tier wake-up). Without Mailpit, allowed emails are recorded in the Outbox.
+
 ## API Reference
 
 | Method | Endpoint | Description |
