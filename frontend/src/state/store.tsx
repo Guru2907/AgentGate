@@ -218,12 +218,6 @@ const OUTCOME_TOAST: Record<ReviewOutcome, string> = {
   timeout: 'Auto-denied: no decision in 10 minutes.',
 }
 
-function pathToDocument(path: string): DocumentInfo {
-  const name = path.includes('/') ? path.slice(path.lastIndexOf('/') + 1) : path
-  const type = path.startsWith('hostile/') ? 'hostile' : path.startsWith('clean/') ? 'clean' : 'uploaded'
-  return { name, type, path }
-}
-
 /** The backend sends extras per call; the result view shows the document's hidden text and the first email's egress. */
 function runExtras(result: RunResult): RunExtras {
   const extras = result.extras ?? []
@@ -311,13 +305,13 @@ export function StoreProvider({ children }: { children: ReactNode }) {
 
     let cancelled = false
 
-    Promise.all([api.docs(), api.uploads()])
-      .then(([paths, uploads]) => {
+    // Live software: only the user's own uploads. The bundled test documents stay on the server for
+    // the bench, evaluation and tests, but are not offered here.
+    api
+      .uploads()
+      .then((uploads) => {
         if (cancelled) return
-        dispatch({
-          type: 'SET_DOCUMENTS',
-          documents: [...paths.map(pathToDocument), ...uploads.map(({ name, path, type }) => ({ name, path, type }))],
-        })
+        dispatch({ type: 'SET_DOCUMENTS', documents: uploads.map(({ name, path, type }) => ({ name, path, type })) })
       })
       .catch(() => {
         toast.error('Could not load documents from the backend.')
