@@ -65,7 +65,14 @@ def test_score_saved_batch_blocks_all_offline(monkeypatch, tmp_path):
     assert again["attacks_passed"] == result["attacks_passed"]
     assert again["attacks_blocked"] == result["attacks_blocked"]
     assert again["rules_hit"] == result["rules_hit"]
-    assert again["per_case"] == result["per_case"]
+    # Timing fields (latency_*_ms) are additive and non-deterministic across runs.
+    def _stable(rows):
+        out = []
+        for row in rows:
+            out.append({k: v for k, v in row.items() if not str(k).startswith("latency_")})
+        return out
+
+    assert _stable(again["per_case"]) == _stable(result["per_case"])
     assert again["summary_line"] == result["summary_line"]
 
 

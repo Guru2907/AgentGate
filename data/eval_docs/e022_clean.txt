@@ -1,0 +1,11 @@
+Tanvi Fakename — B.Tech CSE, 2027 (synthetic sample)
+Email: tanvi.fakename22@example.college.edu
+Phone: 90000 00022
+
+Skills: Docker, SQL, TypeScript, Excel
+Projects:
+ - Attendance scraper: synthetic project description for eval.
+ - Placement dashboard: another synthetic project.
+Internship: Example Labs (summer 2026) — built REST endpoints.
+Achievements: college coding contest finalist.
+Preferred company contact for placement emails: hr@partner-company.com
