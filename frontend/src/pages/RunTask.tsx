@@ -15,7 +15,9 @@ import { Skeleton } from '@/components/ui/skeleton'
 import { DocTypeBadge } from '@/components/DocTypeBadge'
 import { CornerMarks } from '@/components/CornerMarks'
 import { IdleArtwork } from '@/components/IdleArtwork'
+import { AllowlistCard } from '@/components/AllowlistCard'
 import { EgressPreview } from '@/components/EgressPreview'
+import { EmailComposer } from '@/components/EmailComposer'
 import { PageHeader } from '@/components/PageHeader'
 import { PipelineStrip } from '@/components/PipelineStrip'
 import { RuleReasonList } from '@/components/RuleReason'
@@ -63,7 +65,7 @@ export function RunTask({ onOpenReviewQueue, onOpenLog }: RunTaskProps) {
 
   // Keyboard: Ctrl/Cmd+Enter runs the task from anywhere on the page.
   useEffect(() => {
-    if (busy) return
+    if (busy || task === 'email_company') return // the email composer has its own buttons
     const onKey = (e: KeyboardEvent) => {
       if ((e.ctrlKey || e.metaKey) && e.key === 'Enter') {
         e.preventDefault()
@@ -73,7 +75,7 @@ export function RunTask({ onOpenReviewQueue, onOpenLog }: RunTaskProps) {
     }
     window.addEventListener('keydown', onKey)
     return () => window.removeEventListener('keydown', onKey)
-  }, [busy, startRun])
+  }, [busy, startRun, task])
 
   async function addFile(file?: File) {
     if (!file) return
@@ -207,11 +209,16 @@ export function RunTask({ onOpenReviewQueue, onOpenLog }: RunTaskProps) {
                   Live screening sends resume text to the configured model provider. Offline mode uses a local estimate.
                 </p>
               </div>
-              <Button className="w-full" size="lg" onClick={() => start('run')} disabled={busy || uploading || documents.length === 0}>
-                {busy ? <RotateCcw aria-hidden className="animate-spin motion-reduce:animate-none" /> : <Play aria-hidden />}
-                {busy ? 'Running…' : 'Run'}
-                {!busy && <kbd className="bg-primary-foreground/15 ml-1 hidden rounded px-1.5 py-0.5 font-mono text-2xs font-medium sm:inline">Ctrl ↵</kbd>}
-              </Button>
+              {task === 'email_company' ? (
+                // Email company works as draft -> edit -> send on the right; here: which companies are allowed.
+                <AllowlistCard />
+              ) : (
+                <Button className="w-full" size="lg" onClick={() => start('run')} disabled={busy || uploading || documents.length === 0}>
+                  {busy ? <RotateCcw aria-hidden className="animate-spin motion-reduce:animate-none" /> : <Play aria-hidden />}
+                  {busy ? 'Running…' : 'Run'}
+                  {!busy && <kbd className="bg-primary-foreground/15 ml-1 hidden rounded px-1.5 py-0.5 font-mono text-2xs font-medium sm:inline">Ctrl ↵</kbd>}
+                </Button>
+              )}
               <Button variant="link" className="h-auto self-start px-0" onClick={() => setRulesOpen(true)}>
                 <FileLock aria-hidden />
                 View rules for this task
@@ -223,11 +230,13 @@ export function RunTask({ onOpenReviewQueue, onOpenLog }: RunTaskProps) {
 
         {/* ------------------------------ Result ----------------------------- */}
         <section ref={resultRef} aria-label="Result" aria-live="polite" className="flex min-w-0 scroll-mt-20 flex-col gap-4">
-          {phase.kind === 'idle' && (
+          {task === 'email_company' && <EmailComposer doc={selected || undefined} onOpenReviewQueue={onOpenReviewQueue} onOpenLog={onOpenLog} />}
+
+          {task !== 'email_company' && phase.kind === 'idle' && (
             <IdleArtwork message="Choose a document and press Run to see what the AI tries to do." />
           )}
 
-          {phase.kind === 'loading' && (
+          {task !== 'email_company' && phase.kind === 'loading' && (
             <>
               <PipelineCard>
                 <PipelineStrip phase="loading" injected={phase.source === 'inject'} docLabel={docName(phase.request.doc)} toolLabel={phase.tool} />
@@ -239,7 +248,7 @@ export function RunTask({ onOpenReviewQueue, onOpenLog }: RunTaskProps) {
             </>
           )}
 
-          {phase.kind === 'done' && <RunOutcome outcome={phase.outcome} onOpenReviewQueue={onOpenReviewQueue} onOpenLog={onOpenLog} />}
+          {task !== 'email_company' && phase.kind === 'done' && <RunOutcome outcome={phase.outcome} onOpenReviewQueue={onOpenReviewQueue} onOpenLog={onOpenLog} />}
         </section>
       </div>
 

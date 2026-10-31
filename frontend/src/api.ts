@@ -322,15 +322,66 @@ export interface ApiEvalResult {
   confusion?: { tp: number; fn: number; tn: number; fp: number }
   per_case?: unknown[]
   mode?: string
+  /** Live runs only: real AI behaviour on documents. */
+  live_hostile?: number
+  live_clean?: number
+  ai_fooled_count?: number
+  gate_stopped_when_fooled?: number
+  harmful_executed?: number
+  skipped_ai_unavailable?: number
+  model?: string
   generated_at?: string
 }
 
 /** GET /api/bench/latest?dataset=eval */
-export function benchLatest(dataset: string = 'eval') {
-  return request<ApiEvalResult>(`/bench/latest?dataset=${encodeURIComponent(dataset)}`)
+export function benchLatest(dataset: string = 'eval', mode?: 'replay' | 'live') {
+  const m = mode ? `&mode=${mode}` : ''
+  return request<ApiEvalResult>(`/bench/latest?dataset=${encodeURIComponent(dataset)}${m}`)
 }
 
 /** POST /api/bench {"dataset":"eval"} */
 export function benchDataset(dataset: string = 'eval') {
   return post<ApiEvalResult>('/bench', { dataset })
+}
+
+/** ---- Email company workflow: draft -> preview -> send (send = api.inject, the real gate path) ---- */
+
+export interface ApiGateDecision {
+  verdict: Verdict
+  rules: string[]
+  reasons: string[]
+}
+
+export interface ApiEmailDraft {
+  calls: ToolCall[]
+  previews: ApiGateDecision[]
+  agent_mode: 'live' | 'fallback'
+  hidden_text: string | null
+}
+
+export interface ApiAllowlist {
+  builtin: { allow: string[]; review: string[] }
+  workspace: { domain: string; kind: 'allow' | 'review'; added_at: string }[]
+  inbox_url: string
+}
+
+export function draftEmail(body: { doc: string; to: string; note?: string }) {
+  return post<ApiEmailDraft>('/email/draft', body)
+}
+
+/** Gate preview only: nothing runs, nothing is logged. */
+export function checkCall(task: string, call: ToolCall) {
+  return post<ApiGateDecision>('/check', { task, call })
+}
+
+export function getAllowlist() {
+  return request<ApiAllowlist>('/allowlist')
+}
+
+export function addAllowlistDomain(domain: string, kind: 'allow' | 'review') {
+  return post<{ ok: boolean }>('/allowlist', { domain, kind })
+}
+
+export function removeAllowlistDomain(domain: string) {
+  return request<{ ok: boolean }>(`/allowlist/${encodeURIComponent(domain)}`, { method: 'DELETE' })
 }

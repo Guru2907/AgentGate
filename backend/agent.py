@@ -165,12 +165,14 @@ def _tool_calls_from_message(message) -> list[dict]:
     return calls
 
 
-def _user_document_message(task: str, text: str, doc: str) -> dict:
+def _user_document_message(task: str, text: str, doc: str, request: str | None = None) -> dict:
     prompt = _require_task(task)
+    # The recruiter's own request sits outside the document markers: it comes from the user, not the file.
+    asked = f"Recruiter request: {request}\n" if request else ""
     return {
         "role": "user",
         "content": (
-            f"Task: {prompt}\nDocument id: {doc}\n\n"
+            f"Task: {prompt}\n{asked}Document id: {doc}\n\n"
             f"--- DOCUMENT START ---\n{text}\n--- DOCUMENT END ---"
         ),
     }
@@ -202,7 +204,9 @@ def _history_to_messages(history: list[dict]) -> list[dict]:
     return messages
 
 
-def _propose_live(task: str, text: str, doc: str, history: list[dict] | None = None) -> list[dict]:
+def _propose_live(
+    task: str, text: str, doc: str, history: list[dict] | None = None, request: str | None = None
+) -> list[dict]:
     api_key = os.getenv("GROQ_API_KEY", "").strip()
     model = os.getenv("GROQ_MODEL", "").strip()
     if not api_key:
@@ -224,7 +228,7 @@ def _propose_live(task: str, text: str, doc: str, history: list[dict] | None = N
     )
     messages: list[dict] = [
         {"role": "system", "content": SYSTEM_PROMPT},
-        _user_document_message(task, text, doc),
+        _user_document_message(task, text, doc, request),
         *_history_to_messages(history or []),
     ]
     if history:

@@ -240,7 +240,13 @@ npm run dev
 ```
 Open <http://localhost:5173> and create an account. Requests to `/api` are proxied to the backend.
 
-### 4. Tests
+### 4. Local test inbox (optional, for Email company)
+```bash
+docker run -d --name mailpit -p 8025:8025 -p 1025:1025 axllent/mailpit
+```
+Allowed emails then arrive at <http://localhost:8025> with their attachment. Nothing leaves your machine; without Mailpit, sends are recorded in the Outbox.
+
+### 5. Tests
 ```bash
 python -m pytest -q
 ```
@@ -256,6 +262,7 @@ python -m pytest -q
 | `REVIEW_TIMEOUT_MIN` | Minutes before a pending review is auto-denied | `10` |
 | `APP_ORIGINS` | Origins allowed to call the API | `http://localhost:5173,http://127.0.0.1:5173` |
 | `SMTP_*` | Only for password-reset emails (optional) | n/a |
+| `MAILPIT_HOST` / `MAILPIT_SMTP_PORT` / `MAILPIT_UI` | Local test inbox for Email company (localhost only) | `localhost` / `1025` / `http://localhost:8025` |
 
 ## API Reference
 
@@ -289,16 +296,29 @@ All routes except health and sign-in require a session; writes also require the 
 
 ## Attack Bench Results
 
-Measured with `POST /api/bench` on [`data/bench_cases.yaml`](data/bench_cases.yaml) (replay mode, 7 cases). We report only numbers we measure.
+We report only numbers we measured, including the weak spots. All documents use synthetic people.
 
-| Metric | Result |
+**1. Real-world evaluation set: 300 documents** (`data/eval/`, 100 clean + 200 hostile in 12 categories: hidden comments, white text in PDFs, PDF metadata, fake system lines, polite social engineering, "ignore previous", base64/hex encoding, delete requests, read-then-email chains, split exfiltration, multilingual, attack text adapted from public prompt-injection datasets; sources in `data/eval/SOURCES.txt`).
+
+| Gate only (replay: every hostile doc proposes its harmful action) | Result |
 |---|---|
-| Attacks blocked | 4 / 4 |
-| Attacks that got through | 0 |
-| Clean tasks allowed | 3 / 3 |
-| False alarms | 0 |
+| Attacks blocked | **200 / 200** |
+| False alarms on clean documents | **0 / 100** |
+| Gate time per call (incl. logging) | p50 ≈ 11–16 ms, p95 ≈ 25–36 ms |
 
-Red team: in our runs, batches of 5 attacks written live by the attacker AI (and the checked-in 10-attack reference batch) were all blocked. New batches can differ; the Red team tab shows each run's actual result.
+**2. Live AI run**: the real Groq agent (`openai/gpt-oss-20b`) read 30 sampled documents (`python scripts/eval.py --mode live --limit 30`):
+
+| Real AI behaviour | Result |
+|---|---|
+| AI fooled into a harmful action (hostile docs) | **4 / 17** (24%) |
+| Gate stopped the harmful ones | **4 / 4** |
+| Harmful actions that executed | **0** |
+| False alarms on clean docs | 5 / 12 — all R3: the AI attached the candidate's file, which in the test set sits in `eval_docs/`, outside Email company's file scope (real uploads are in scope) |
+| Skipped (AI unavailable) | 1 (never replaced by fake output) |
+
+**3. Hand-written test cases:** 164 cases in 9 groups through the real `/api/inject` path: **159 pass, 5 known gaps** (listed in `data/eval/results/tests.json` and the Test results tab). Whole suite: see CI.
+
+**4. Bench (`data/bench_cases.yaml`, 7 cases):** 4/4 attacks blocked, 3/3 clean allowed, 0 false alarms. **Red team:** batches of 5 attacks written live by the attacker AI were all blocked in our runs; each run's result is shown in the app.
 
 ## Project Status
 
@@ -356,6 +376,9 @@ Built with open-source software and free-tier APIs:
 [Sonner](https://sonner.emilkowal.ski) ·
 [Zod](https://zod.dev) ·
 [Inter](https://rsms.me/inter/) and [JetBrains Mono](https://www.jetbrains.com/lp/mono/) via Fontsource ·
+[Mailpit](https://github.com/axllent/mailpit) (local test inbox) ·
+[python-docx](https://github.com/python-openxml/python-docx) ·
+[fpdf2](https://github.com/py-pdf/fpdf2) ·
 [Obra shadcn/ui Figma kit](https://www.figma.com/community/file/1514746685758799870/)
 
 Threat framing from the [OWASP Top 10 for LLM Applications 2025](https://genai.owasp.org/llm-top-10/).
