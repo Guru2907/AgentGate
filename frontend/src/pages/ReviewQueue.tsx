@@ -1,7 +1,8 @@
 import { useEffect, useRef, useState, type CSSProperties } from 'react'
-import { Check, CircleCheck, Inbox, Play, X } from 'lucide-react'
+import { Check, CircleCheck, Compass, Inbox, Play, X } from 'lucide-react'
 
 import type { ReviewItem } from '@/types'
+import { REVIEW_QUEUE_TOUR, useTour } from '@/components/OnboardingTour'
 import { Button } from '@/components/ui/button'
 import { Card } from '@/components/ui/card'
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table'
@@ -21,6 +22,7 @@ const LEAVE_MS = 200
 
 export function ReviewQueue({ onRunTask }: { onRunTask?: () => void }) {
   const { state, pendingCount, resolveReview } = useStore()
+  const startTour = useTour('review-queue', REVIEW_QUEUE_TOUR)
   // Items animating out after a decision; buttons are disabled while leaving.
   const [leaving, setLeaving] = useState<Set<string>>(new Set())
   const timers = useRef<number[]>([])
@@ -47,14 +49,23 @@ export function ReviewQueue({ onRunTask }: { onRunTask?: () => void }) {
 
   return (
     <div className="flex flex-col gap-6">
-      <PageHeader title="Review Queue" description="Risky but valid actions wait here for a human decision." />
+      <PageHeader
+        title="Review Queue"
+        description="Risky but valid actions wait here for a human decision."
+        actions={
+          <Button variant="outline" size="sm" onClick={startTour}>
+            <Compass aria-hidden />
+            Take the tour
+          </Button>
+        }
+      />
 
       <Tabs defaultValue="pending" className="gap-6">
         <TabsList>
-          <TabsTrigger value="pending">
+          <TabsTrigger value="pending" data-tour="tab-pending">
             Pending <span className="tabular-nums">({pendingCount})</span>
           </TabsTrigger>
-          <TabsTrigger value="outbox">
+          <TabsTrigger value="outbox" data-tour="tab-outbox">
             Outbox <span className="tabular-nums">({state.outbox.length})</span>
           </TabsTrigger>
         </TabsList>

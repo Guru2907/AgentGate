@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from 'react'
 import { toast } from 'sonner'
-import { Check, CircleX, Copy, Minus, Search, SearchX, TriangleAlert, X, type LucideIcon } from 'lucide-react'
+import { Check, CircleX, Compass, Copy, Minus, Search, SearchX, TriangleAlert, X, type LucideIcon } from 'lucide-react'
 
 import { api, type ApiChain, type ApiLogExplanation, type ApiRuleGuideEntry, type ApiRuleStatus } from '@/api'
 import type { LogEntry, Verdict } from '@/types'
@@ -19,6 +19,7 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip'
 import { BreakableText } from '@/components/BreakableText'
 import { ChainChip } from '@/components/ChainChip'
+import { GATE_LOG_TOUR, useTour } from '@/components/OnboardingTour'
 import { CornerMarks } from '@/components/CornerMarks'
 import { EgressPreview } from '@/components/EgressPreview'
 import { EmptyState } from '@/components/EmptyState'
@@ -71,6 +72,7 @@ function LiveStatus({ online }: { online: boolean | null }) {
 /** `focusLogId` opens that entry on mount (the page remounts on every navigation). */
 export function GateLog({ focusLogId = null }: { focusLogId?: number | null }) {
   const { state } = useStore()
+  const startTour = useTour('gate-log', GATE_LOG_TOUR)
   const [tab, setTab] = useState<Filter>('all')
   const [query, setQuery] = useState('')
   const [selectedId, setSelectedId] = useState<number | null>(focusLogId)
@@ -114,22 +116,28 @@ export function GateLog({ focusLogId = null }: { focusLogId?: number | null }) {
         description="Every action the AI tried, and what the gate decided."
         actions={
           <>
-            <ChainChip />
+            <span data-tour="log-chain">
+              <ChainChip />
+            </span>
             <LiveStatus online={state.backendOnline} />
+            <Button variant="outline" size="sm" onClick={startTour}>
+              <Compass aria-hidden />
+              Take the tour
+            </Button>
           </>
         }
       />
 
       <Tabs value={tab} onValueChange={(v) => setTab(v as Filter)} className="gap-4">
         <div className="flex flex-wrap items-center justify-between gap-3">
-          <TabsList className="max-w-full justify-start overflow-x-auto">
+          <TabsList data-tour="log-tabs" className="max-w-full justify-start overflow-x-auto">
             {TABS.map((t) => (
               <TabsTrigger key={t.value} value={t.value}>
                 {t.label} <span className="tabular-nums">({counts[t.value]})</span>
               </TabsTrigger>
             ))}
           </TabsList>
-          <div className="relative w-full sm:w-72">
+          <div data-tour="log-search" className="relative w-full sm:w-72">
             <Search aria-hidden className="text-muted-foreground pointer-events-none absolute top-1/2 left-2.5 size-4 -translate-y-1/2" />
             <Input
               aria-label="Search by document, tool or log id"

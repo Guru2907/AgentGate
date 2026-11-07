@@ -125,7 +125,7 @@ export function EmailComposer({ doc, docLabel, onOpenReviewQueue, onOpenLog }: E
             </div>
           </div>
           <div className="flex flex-wrap items-center gap-3">
-            <Button onClick={() => void makeDraft()} disabled={!doc || !to.trim() || drafting}>
+            <Button data-tour="email-draft" onClick={() => void makeDraft()} disabled={!doc || !to.trim() || drafting}>
               {drafting ? <RotateCcw aria-hidden className="animate-spin motion-reduce:animate-none" /> : <Sparkles aria-hidden />}
               {drafting ? 'Drafting…' : draft ? 'Draft again' : 'Draft email'}
             </Button>

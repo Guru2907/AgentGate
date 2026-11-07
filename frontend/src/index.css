@@ -868,3 +868,38 @@
     background-color: var(--card);
   }
 }
+
+/* Onboarding tour (driver.js): match the app's dark cards and orange accent. */
+.driver-popover.ag-tour {
+  background: var(--popover);
+  color: var(--foreground);
+  border: 1px solid var(--border);
+  border-radius: 0.75rem;
+  box-shadow: 0 20px 60px -20px rgb(0 0 0 / 0.7);
+  max-width: 22rem;
+}
+.driver-popover.ag-tour .driver-popover-title { font-size: 1rem; font-weight: 600; }
+.driver-popover.ag-tour .driver-popover-description { color: var(--muted-foreground); font-size: 0.875rem; line-height: 1.5; }
+.driver-popover.ag-tour .driver-popover-description b { color: var(--foreground); }
+.driver-popover.ag-tour .driver-popover-progress-text { color: var(--muted-foreground); }
+.driver-popover.ag-tour button {
+  background: transparent;
+  color: var(--foreground);
+  border: 1px solid var(--border);
+  border-radius: 0.5rem;
+  text-shadow: none;
+  padding: 0.35rem 0.8rem;
+  font: inherit;
+  font-size: 0.8125rem;
+}
+.driver-popover.ag-tour .driver-popover-next-btn { background: var(--primary); border-color: var(--primary); color: #fff; }
+.driver-popover.ag-tour .driver-popover-close-btn { border: 0; color: var(--muted-foreground); }
+.driver-popover.ag-tour .driver-popover-arrow { border-color: var(--popover); }
+.driver-popover.ag-tour .driver-popover-arrow-side-left.driver-popover-arrow,
+.driver-popover.ag-tour .driver-popover-arrow-side-right.driver-popover-arrow,
+.driver-popover.ag-tour .driver-popover-arrow-side-top.driver-popover-arrow,
+.driver-popover.ag-tour .driver-popover-arrow-side-bottom.driver-popover-arrow { border-color: transparent; }
+.driver-popover.ag-tour .driver-popover-arrow-side-left.driver-popover-arrow { border-left-color: var(--popover); }
+.driver-popover.ag-tour .driver-popover-arrow-side-right.driver-popover-arrow { border-right-color: var(--popover); }
+.driver-popover.ag-tour .driver-popover-arrow-side-top.driver-popover-arrow { border-top-color: var(--popover); }
+.driver-popover.ag-tour .driver-popover-arrow-side-bottom.driver-popover-arrow { border-bottom-color: var(--popover); }

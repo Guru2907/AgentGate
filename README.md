@@ -384,6 +384,7 @@ Built with open-source software and free-tier APIs:
 [Zod](https://zod.dev) ·
 [Inter](https://rsms.me/inter/) and [JetBrains Mono](https://www.jetbrains.com/lp/mono/) via Fontsource ·
 [Mailpit](https://github.com/axllent/mailpit) (local test inbox) ·
+[driver.js](https://driverjs.com) (onboarding tour) ·
 [python-docx](https://github.com/python-openxml/python-docx) ·
 [fpdf2](https://github.com/py-pdf/fpdf2) ·
 [Obra shadcn/ui Figma kit](https://www.figma.com/community/file/1514746685758799870/)
