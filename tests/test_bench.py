@@ -89,6 +89,20 @@ def test_bench_scratch_db_does_not_leak_to_other_requests(tmp_path, monkeypatch)
     assert db._db_path() == real
 
 
+def test_eval_run_from_api_does_not_write_results(monkeypatch, tmp_path):
+    from backend import bench
+
+    cases = bench.load_cases(bench.EVAL_CASES_PATH)[:3]
+    monkeypatch.setattr(bench, "load_cases", lambda path: cases)
+    monkeypatch.setattr(bench, "EVAL_RESULTS_DIR", tmp_path / "results")
+
+    result = bench.run_bench(dataset="eval")
+
+    assert result["total"] == 3
+    assert result["mode"] == "replay" and result["generated_at"]
+    assert not (tmp_path / "results").exists()
+
+
 def test_eval_dataset_loads_and_docs_exist():
     from pathlib import Path
 
