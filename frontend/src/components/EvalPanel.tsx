@@ -123,8 +123,8 @@ export function EvalPanel() {
     setRunning(true)
     setError(null)
     try {
-      await benchDataset('eval')
-      await load()
+      // The run is shown but not saved; the published numbers come from scripts/eval.py.
+      setData(await benchDataset('eval'))
     } catch (e) {
       const msg = e instanceof ApiError ? e.message : e instanceof Error ? e.message : 'Eval run failed'
       setError(msg)

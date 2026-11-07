@@ -338,7 +338,9 @@ def run_bench(
 ) -> dict:
     """Load the default bench case list (#7), optionally append extra cases (#10), and score.
 
-    dataset='eval' loads data/eval/cases.yaml and uses fooled_calls for hostile docs.
+    dataset='eval' loads data/eval/cases.yaml and uses fooled_calls for hostile docs. The result is returned,
+    not saved: only scripts/eval.py writes data/eval/results/, so a click in the app can't replace the
+    published numbers.
     """
     if cases_path is None and dataset == "eval":
         path = EVAL_CASES_PATH
@@ -350,6 +352,5 @@ def run_bench(
     if dataset == "eval":
         propose = make_case_aware_propose(cases, load_fooled_calls())
         summary = run_cases(cases, propose=propose)
-        _write_eval_result(summary, mode="replay")
-        return summary
+        return {**summary, "mode": "replay", "generated_at": datetime.now(timezone.utc).isoformat()}
     return run_cases(cases)
