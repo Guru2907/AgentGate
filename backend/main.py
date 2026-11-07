@@ -19,6 +19,8 @@ from fastapi import Body, Depends, FastAPI, File, HTTPException, Request, Respon
 from fastapi.exceptions import RequestValidationError
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
+from pydantic import ValidationError
+import yaml
 
 from backend import auth, db, gate, insights, tools
 from backend.schemas import (
@@ -57,6 +59,8 @@ INJECT_DOC = "(injected)"
 DEFAULT_AGENT_STEPS = 1
 
 POLICY = gate.load_policy()
+RULE_GUIDE_PATH = Path(__file__).parent / "rule_guide.yaml"
+RULE_GUIDE = yaml.safe_load(RULE_GUIDE_PATH.read_text(encoding="utf-8"))
 
 
 def _agent_steps() -> int:
@@ -613,6 +617,87 @@ def get_logs(session: dict = Depends(auth.require_user)) -> list[LogEntry]:
 @app.get("/api/logs/verify")
 def verify_logs(session: dict = Depends(auth.require_user)) -> dict:
     return db.verify_chain(session["workspace_id"])
+
+
+@app.get("/api/logs/{log_id}/explain")
+def explain_log(log_id: int, session: dict = Depends(auth.require_user)) -> dict:
+    workspace_id = session["workspace_id"]
+    row, run_steps = db.get_related_logs(log_id, workspace_id)
+    if row is None:
+        raise HTTPException(status_code=404, detail="Log entry not found.")
+
+    policy = workspace_policy(workspace_id)
+    context = None
+    prior_steps = sorted(
+        (step for step in run_steps if step.id < row.id and step.source in {"run", "inject"}),
+        key=lambda step: step.id,
+    )
+    if prior_steps:
+        context = gate.RunContext()
+        for step in prior_steps:
+            prior_call = {"tool": step.tool, "args": step.args}
+            try:
+                prior_call = ToolCall.model_validate(prior_call)
+            except ValidationError:
+                pass
+            prior_decision = Decision(verdict=step.verdict, rules=step.rules, reasons=step.reasons)
+            context.record(prior_call, prior_decision, "", policy)
+
+    call = {"tool": row.tool, "args": row.args}
+    if "POLICY_CHANGE" in row.rules:
+        checks = [
+            {
+                "rule": rule,
+                "status": "not_applicable",
+                "detail": "This audit row records a policy change, not a tool call.",
+            }
+            for rule in gate.RULE_ORDER
+        ]
+    else:
+        checks = gate.explain(
+            call,
+            row.task,
+            policy,
+            context,
+            stored_rules=row.rules,
+            stored_verdict=row.verdict,
+            stored_reasons=row.reasons,
+        )
+
+    hidden_text = None
+    if row.doc != INJECT_DOC:
+        try:
+            hidden_text = insights.hidden_instructions(_read_doc(_resolve_doc(row.doc, workspace_id)))
+        except (HTTPException, OSError, ValueError):
+            hidden_text = None
+
+    try:
+        parsed_call = ToolCall.model_validate(call)
+        egress = insights.egress_preview(parsed_call, policy)
+    except Exception:
+        egress = None
+
+    guide_keys = {check["rule"] for check in checks}
+    guide_keys.update(rule for rule in row.rules if rule in RULE_GUIDE)
+    return {
+        "row": row.model_dump(),
+        "checks": checks,
+        "run_steps": [step.model_dump() for step in run_steps],
+        "hidden_text": hidden_text,
+        "policy_section": policy.get("tasks", {}).get(row.task, {}),
+        "guide": {rule: RULE_GUIDE[rule] for rule in guide_keys if rule in RULE_GUIDE},
+        "egress": egress.model_dump() if egress else None,
+        "resolution": (
+            resolution.model_dump()
+            if (resolution := db.get_review_resolution(log_id, workspace_id))
+            else None
+        ),
+    }
+
+
+@app.get("/api/rules")
+def get_rules(session: dict = Depends(auth.require_user)) -> dict:
+    return RULE_GUIDE
 
 
 def _expire_reviews(workspace_id: int) -> None:

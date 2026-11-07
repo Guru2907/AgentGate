@@ -31,6 +31,19 @@ REQUIRED_ARGS = {
 OPTIONAL_ARGS = {"send_email": {"attachment"}}
 
 Hit = tuple[str, str, str]  # (severity "block" | "review", rule_id, reason)
+RULE_ORDER = (
+    "R1_TOOL_NOT_ALLOWED",
+    "R2_RECIPIENT_NOT_ALLOWED",
+    "R3_FILE_OUT_OF_SCOPE",
+    "R4_SENSITIVE_FILE",
+    "R5_SENSITIVE_DATA_OUT",
+    "R6_MALFORMED_CALL",
+    "R7_TOO_MANY_CALLS",
+    "R8_GLOBAL_DENY",
+    "R9_TAINTED_EGRESS",
+    "R10_ENCODED_EXFIL",
+    "R11_APPROVAL_TAMPERED",
+)
 
 FINGERPRINT_SIZE = 12  # characters per fingerprint window (letters/digits only)
 FINGERPRINT_MATCHES = 3  # shared windows needed to call it the same content
@@ -283,6 +296,71 @@ def check(call: ToolCall | dict, task: str, policy: dict, ctx: RunContext | None
         + _check_budget(ctx, policy)
     )
     return _decide(hits)
+
+
+def explain(
+    call: ToolCall | dict,
+    task: str,
+    policy: dict,
+    ctx: RunContext | None = None,
+    *,
+    stored_rules: list[str] | None = None,
+    stored_verdict: str | None = None,
+    stored_reasons: list[str] | None = None,
+) -> list[dict[str, str]]:
+    """Describe every rule without changing the decision or performing I/O.
+
+    Stored hits keep historical explanations accurate when the current policy differs from the
+    policy that judged the call. Sequence-dependent checks are not applicable without run context.
+    """
+    stored_rules = stored_rules or []
+    stored_reasons = stored_reasons or []
+    task_cfg = policy.get("tasks", {}).get(task)
+    cfg = task_cfg or {}
+
+    try:
+        parsed = call if isinstance(call, ToolCall) else ToolCall.model_validate(call)
+        hits = (
+            _check_args(parsed)
+            + _check_tool(parsed, task, task_cfg, policy)
+            + _check_recipient(parsed, cfg)
+            + _check_files(parsed, cfg, policy)
+            + _check_content(parsed, policy, ctx)
+            + _check_taint(parsed, cfg, ctx)
+            + _check_budget(ctx, policy)
+        )
+    except (ValidationError, TypeError, AttributeError):
+        hits = [("block", "R6_MALFORMED_CALL", "proposed call does not match the tool call schema")]
+
+    by_rule: dict[str, list[tuple[str, str]]] = {}
+    for severity, rule, detail in hits:
+        by_rule.setdefault(rule, []).append((severity, detail))
+
+    stored_detail = dict(zip(stored_rules, stored_reasons))
+    checks: list[dict[str, str]] = []
+    for rule in RULE_ORDER:
+        rule_hits = by_rule.get(rule, [])
+        if rule == "R11_APPROVAL_TAMPERED":
+            status = "failed" if rule in stored_rules else "not_applicable"
+        elif rule in {"R9_TAINTED_EGRESS", "R10_ENCODED_EXFIL"} and ctx is None:
+            status = ("review" if stored_verdict == "REVIEW" else "failed") if rule in stored_rules else "not_applicable"
+        elif rule_hits:
+            status = "review" if any(severity == "review" for severity, _ in rule_hits) else "failed"
+        elif rule in stored_rules:
+            status = "review" if stored_verdict == "REVIEW" else "failed"
+        else:
+            status = "passed"
+
+        if rule_hits:
+            detail = "; ".join(message for _, message in rule_hits)
+        elif rule in stored_detail:
+            detail = stored_detail[rule]
+        elif status == "not_applicable":
+            detail = "There was no matching run history or approval check for this row."
+        else:
+            detail = "No problem was found by this check."
+        checks.append({"rule": rule, "status": status, "detail": detail})
+    return checks
 
 
 # Read-only helpers reused by insights.py (egress preview); they expose the detectors above, no rule logic.
