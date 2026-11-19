@@ -15,4 +15,11 @@ Render (backend) deploy config.
 
 ## Post-hackathon improvements (from 7 Nov 2026)
 
-Improvements start after this point. See AUDIT_2026-11.md.
+Improvements start after this point, based on a post-hackathon audit (kept locally).
+
+- **Gate Log explanations** (#38, Siddeshwar): click a decision for a plain-language walkthrough of every rule.
+- **Evaluation runs from the app are no longer saved** (#39): only `scripts/eval.py` writes published results.
+- **Reliable demo**: Run Task lists the bundled sample documents again; they use saved AI answers, so a hostile sample is blocked every time, offline. Email company drafts for samples use the saved plan unless `LLM_MODE=live`.
+- **Strict recipient check (R2)**: exactly one well-formed address; spaces, an empty local part, two `@` or two recipients are blocked. Subdomains of allowlisted domains are allowed when the policy opts in. Hand-written gaps rcp-003/013/017 closed.
+- **Daily AI limits**: live AI calls (uploads, live email drafts, red-team generation) are capped per account and for the whole server; sign-ups are capped per hour server-wide.
+- **Honest README**: demo steps match the app, live results come first, and each number says how it was measured.
