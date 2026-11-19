@@ -897,14 +897,24 @@ def _plan_email(text: str, doc: str, request: str, policy: dict) -> tuple[list[d
     Each step is previewed by the gate with a shared RunContext, so the final email's preview already knows what the
     plan read (R9) and what earlier emails carried (R10). Reading the candidate's own document is skipped: the AI
     already has its text.
+
+    Bundled samples (not uploads) use the saved AI answers unless LLM_MODE=live, so the demo gives the same
+    plan every time and spends no AI quota.
     """
     from backend import agent
+
+    saved = not doc.startswith("uploads/") and os.getenv("LLM_MODE", "replay").strip().lower() != "live"
+
+    def next_calls(history: list[dict]) -> list:
+        if saved:
+            return _propose(EMAIL_TASK, text, doc, history)
+        return agent._propose_live(EMAIL_TASK, text, doc, history=history or None, request=request)
 
     ctx = gate.RunContext()
     history: list[dict] = []
     steps: list[dict] = []
     for _ in range(PLAN_STEPS + 1):
-        calls = [{k: v for k, v in c.items() if k != "_id"} for c in agent._propose_live(EMAIL_TASK, text, doc, history=history or None, request=request)]
+        calls = [{k: v for k, v in c.items() if k != "_id"} for c in next_calls(history) if isinstance(c, dict)]
         if not calls:
             break
         call = calls[0]
@@ -921,7 +931,7 @@ def _plan_email(text: str, doc: str, request: str, policy: dict) -> tuple[list[d
             break
         ctx.record(_as_record(call), decision, NOT_RUN_YET, policy)
         history.append({"call": call, "output": NOT_RUN_YET, "verdict": decision.verdict})
-    return steps, "live"
+    return steps, "replay" if saved else "live"
 
 
 def _preview_with_prior(prior: list, call: dict, policy: dict) -> Decision:

@@ -393,7 +393,7 @@ export interface ApiGateDecision {
 export interface ApiEmailDraft {
   /** The AI's plan in order; the last step is the email the user edits. */
   steps: { call: ToolCall; preview: ApiGateDecision }[]
-  agent_mode: 'live' | 'fallback'
+  agent_mode: 'live' | 'replay' | 'fallback'
   email_from_template: boolean
   hidden_text: string | null
   calls: ToolCall[]

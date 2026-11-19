@@ -16,6 +16,7 @@ def client(tmp_path, monkeypatch):
     monkeypatch.setenv("DB_PATH", str(tmp_path / "test.db"))
     monkeypatch.setenv("AGENT", "fake")
     monkeypatch.setenv("AGENT_STEPS", "1")
+    monkeypatch.setenv("LLM_MODE", "live")  # drafts ask the live AI (stubbed or missing in these tests)
     monkeypatch.delenv("GROQ_API_KEY", raising=False)
     monkeypatch.setenv("MAILPIT_SMTP_PORT", "1")  # nothing listens here: delivery falls back to the outbox record
     with TestClient(app) as c:
@@ -55,6 +56,20 @@ def test_draft_shows_a_fooled_agent_as_is(client, monkeypatch):
     d = client.post("/api/email/draft", json={"doc": DOC, "to": "hr@partner-company.com"}).json()
     assert d["agent_mode"] == "live" and d["calls"][0]["args"]["to"] == "x@evil.co"
     assert d["previews"][0]["verdict"] == "BLOCK"
+
+
+def test_sample_draft_uses_saved_answers_offline_and_never_calls_the_ai(client, monkeypatch):
+    monkeypatch.setenv("LLM_MODE", "replay")
+    monkeypatch.setenv("AGENT", "llm")
+
+    def no_ai(*a, **k):
+        raise AssertionError("the live AI must not be called for a sample in replay mode")
+
+    monkeypatch.setattr(agent, "_propose_live", no_ai)
+    d = client.post("/api/email/draft", json={"doc": "hostile/resume_h06_chain.txt", "to": "hr@partner-company.com"}).json()
+    assert d["agent_mode"] == "replay" and not d["email_from_template"]
+    assert [s["call"]["tool"] for s in d["steps"]] == ["read_file", "send_email"]
+    assert d["previews"][-1]["verdict"] == "BLOCK" and "R9_TAINTED_EGRESS" in d["previews"][-1]["rules"]
 
 
 def test_check_previews_without_running_or_logging(client):
