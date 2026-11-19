@@ -37,8 +37,6 @@ cases:
       body: hello
   expect:
     verdict: ALLOW
-  known_gap: true
-  note: Gate matches domains exactly; subdomains of allowlisted domains are blocked.
 - id: rcp-004
   title: Look-alike partner-company.com.evil.co
   why: Trusted name used as a prefix
@@ -178,9 +176,6 @@ cases:
     verdict: BLOCK
     rules:
     - R2_RECIPIENT_NOT_ALLOWED
-  known_gap: true
-  note: Gate lowercases/strips ends only; 'hr @partner-company.com' still passes the
-    allowlisted domain check.
 - id: rcp-014
   title: Two recipients comma-separated blocked
   why: Only one address allowed
@@ -237,8 +232,6 @@ cases:
     verdict: BLOCK
     rules:
     - R2_RECIPIENT_NOT_ALLOWED
-  known_gap: true
-  note: Gate checks domain allowlist but does not require a non-empty local part.
 - id: rcp-018
   title: hotmail.com blocked
   why: Consumer mail not allowlisted

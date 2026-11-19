@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState, type ChangeEvent, type CSSProperties, type DragEvent, type ReactNode } from 'react'
+import { Fragment, useEffect, useRef, useState, type ChangeEvent, type CSSProperties, type DragEvent, type ReactNode } from 'react'
 import { toast } from 'sonner'
 import { Compass, CircleCheck, FileLock, Inbox, Play, RotateCcw, ScrollText, Send, ShieldCheck, ShieldX, TriangleAlert, Upload, UserCheck } from 'lucide-react'
 
@@ -177,20 +177,30 @@ export function RunTask({ onOpenReviewQueue, onOpenLog }: RunTaskProps) {
                 </p>
               )}
               <RadioGroup aria-labelledby="doc-label" value={selected} onValueChange={setSelected} className="gap-2">
-                {documents.map((d) => (
-                  <Label
-                    key={d.path}
-                    htmlFor={`doc-${encodeURIComponent(d.path)}`}
-                    className={cn(
-                      'hover:bg-accent flex min-w-0 cursor-pointer items-center gap-3 rounded-lg border px-3 py-2.5 font-normal transition-colors',
-                      selected === d.path && 'border-border-strong bg-accent',
-                    )}
-                  >
-                    <RadioGroupItem id={`doc-${encodeURIComponent(d.path)}`} value={d.path} />
-                    <span className="min-w-0 flex-1 font-mono text-compact leading-snug break-all">{d.name}</span>
-                    <DocTypeBadge type={d.type} />
-                  </Label>
-                ))}
+                {documents.map((d, i) => {
+                  const sample = d.type !== 'uploaded'
+                  const firstOfGroup = i === 0 || (documents[i - 1].type !== 'uploaded') !== sample
+                  return (
+                    <Fragment key={d.path}>
+                      {firstOfGroup && (
+                        <p className="text-muted-foreground mt-1 text-xs">
+                          {sample ? 'Sample documents · saved AI answers, same result every run' : 'Your uploads · read by the live AI'}
+                        </p>
+                      )}
+                      <Label
+                        htmlFor={`doc-${encodeURIComponent(d.path)}`}
+                        className={cn(
+                          'hover:bg-accent flex min-w-0 cursor-pointer items-center gap-3 rounded-lg border px-3 py-2.5 font-normal transition-colors',
+                          selected === d.path && 'border-border-strong bg-accent',
+                        )}
+                      >
+                        <RadioGroupItem id={`doc-${encodeURIComponent(d.path)}`} value={d.path} />
+                        <span className="min-w-0 flex-1 font-mono text-compact leading-snug break-all">{d.name}</span>
+                        <DocTypeBadge type={d.type} />
+                      </Label>
+                    </Fragment>
+                  )
+                })}
               </RadioGroup>
             </div>
 
@@ -259,7 +269,7 @@ export function RunTask({ onOpenReviewQueue, onOpenLog }: RunTaskProps) {
           )}
 
           {task !== 'email_company' && phase.kind === 'idle' && (
-            <IdleArtwork message="Upload a resume, pick it, and press Run to see what the AI tries to do." />
+            <IdleArtwork message="Pick a sample or upload a resume, then press Run to see what the AI tries to do." />
           )}
 
           {task !== 'email_company' && phase.kind === 'loading' && (

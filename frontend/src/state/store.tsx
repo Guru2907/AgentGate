@@ -305,13 +305,17 @@ export function StoreProvider({ children }: { children: ReactNode }) {
 
     let cancelled = false
 
-    // Live software: only the user's own uploads. The bundled test documents stay on the server for
-    // the bench, evaluation and tests, but are not offered here.
-    api
-      .uploads()
-      .then((uploads) => {
+    // The user's own uploads first, then the bundled samples (clean/ and hostile/). Samples use saved AI
+    // answers, so a hostile sample shows the same blocked result every time, even offline.
+    Promise.all([api.uploads(), api.docs()])
+      .then(([uploads, samples]) => {
         if (cancelled) return
-        dispatch({ type: 'SET_DOCUMENTS', documents: uploads.map(({ name, path, type }) => ({ name, path, type })) })
+        const own: DocumentInfo[] = uploads.map(({ name, path, type }) => ({ name, path, type }))
+        const bundled: DocumentInfo[] = samples.map((path) => {
+          const [folder, name] = path.split('/')
+          return { name, path, type: folder === 'hostile' ? 'hostile' : 'clean' }
+        })
+        dispatch({ type: 'SET_DOCUMENTS', documents: [...own, ...bundled] })
       })
       .catch(() => {
         toast.error('Could not load documents from the backend.')
@@ -399,7 +403,8 @@ export function StoreProvider({ children }: { children: ReactNode }) {
           })
           .catch((err: Error) => {
             dispatch({ type: 'UPDATE_RUN_SESSION', patch: { phase: { kind: 'idle' } } })
-            dispatch({ type: 'SET_BACKEND', online: false })
+            // The server answered (e.g. 429 daily AI limit): it is online, just show its message.
+            if (!(err instanceof ApiError)) dispatch({ type: 'SET_BACKEND', online: false })
             toast.error(err.message || 'Backend request failed')
           })
         return

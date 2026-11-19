@@ -142,7 +142,7 @@ export function EmailComposer({ doc, docLabel, onOpenReviewQueue, onOpenLog }: E
             <div className="flex flex-wrap items-center justify-between gap-2">
               <span className="eyebrow">Step 2: check and edit the draft</span>
               <span className="text-muted-foreground text-xs">
-                {draft.agent_mode === 'live' ? 'Written by the live AI agent' : 'AI unavailable: template draft'}
+                {draft.agent_mode === 'live' ? 'Written by the live AI agent' : draft.agent_mode === 'replay' ? 'Saved AI answer for this sample' : 'AI unavailable: template draft'}
               </span>
             </div>
 

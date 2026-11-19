@@ -126,18 +126,37 @@ def _check_tool(call: ToolCall, task: str, task_cfg: dict | None, policy: dict) 
     return hits
 
 
+# One plain address: a non-empty local part (dot-atom, no spaces) @ a dotted hostname.
+_LOCAL = r"[a-z0-9!#$%&'*+/=?^_`{|}~-]+(?:\.[a-z0-9!#$%&'*+/=?^_`{|}~-]+)*"
+_DOMAIN = r"(?:[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?\.)+[a-z]{2,63}"
+_ADDRESS = re.compile(rf"({_LOCAL})@({_DOMAIN})")
+
+
+def recipient_domain(to: object) -> str | None:
+    """Domain of a single well-formed address, lowercased; None if `to` is not exactly one valid address."""
+    if not isinstance(to, str):
+        return None
+    match = _ADDRESS.fullmatch(to.strip().lower())
+    return match.group(2) if match else None
+
+
+def _domain_listed(domain: str, listed: list[str], subdomains: bool) -> bool:
+    """Exact match, or (when the policy opts in) a subdomain such as hr.partner-company.com."""
+    return any(domain == d or (subdomains and domain.endswith("." + d)) for d in listed)
+
+
 def _check_recipient(call: ToolCall, task_cfg: dict) -> list[Hit]:
     """R2: recipient domain must be allowlisted; review-listed domains need a human."""
     if call.tool != "send_email" or not isinstance(call.args.get("to"), str):
         return []
-    to = call.args["to"].strip().lower()
-    if to.count("@") != 1 or not to.split("@")[1]:
-        return [("block", "R2_RECIPIENT_NOT_ALLOWED", f"{to!r} is not a valid email address")]
-    domain = to.split("@")[1]
+    domain = recipient_domain(call.args["to"])
+    if domain is None:
+        return [("block", "R2_RECIPIENT_NOT_ALLOWED", f"{call.args['to']!r} is not a valid email address")]
     recipients = task_cfg.get("recipients", {})
-    if domain in recipients.get("allow_domains", []):
+    subdomains = bool(recipients.get("allow_subdomains", False))
+    if _domain_listed(domain, recipients.get("allow_domains", []), subdomains):
         return []
-    if domain in recipients.get("review_domains", []):
+    if _domain_listed(domain, recipients.get("review_domains", []), subdomains):
         return [("review", "R2_RECIPIENT_NOT_ALLOWED", f"{domain} is allowed only after human review")]
     return [("block", "R2_RECIPIENT_NOT_ALLOWED", f"{domain} is not an allowlisted domain")]
 
@@ -247,9 +266,11 @@ def _check_taint(call: ToolCall, task_cfg: dict, ctx: RunContext | None) -> list
                  f"this run read confidential data ({', '.join(sorted(confidential))}); "
                  "nothing may leave in the same run, even to an allowlisted address")]
     if personal := ctx.read.get("personal"):
-        domain = str(call.args.get("to", "")).rsplit("@", 1)[-1].lower()
+        recipients = task_cfg.get("recipients", {})
+        domain = recipient_domain(call.args.get("to"))
         normal_flow = (  # the task's own job: send that same resume to an allowlisted company
-            domain in task_cfg.get("recipients", {}).get("allow_domains", [])
+            domain is not None
+            and _domain_listed(domain, recipients.get("allow_domains", []), bool(recipients.get("allow_subdomains", False)))
             and call.args.get("attachment") in personal
         )
         if not normal_flow:

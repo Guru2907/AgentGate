@@ -2,7 +2,7 @@
 
 # AgentGate
 
-### The AI can be fooled. The gate can't.
+### The AI can be fooled. The gate still checks every action.
 
 **A deterministic permission gate between AI agents and the tools they use.**
 Every action an AI proposes is checked against policy (**ALLOW**, **BLOCK** or **REVIEW**) and recorded in a tamper-evident audit log.
@@ -189,7 +189,11 @@ AgentGate/
 │   ├── db.py            # SQLite: audit log with hash chain, reviews, outbox, accounts
 │   ├── bench.py         # Attack bench engine (shared with the red team)
 │   ├── redteam.py       # Automated attacker: generate + score hostile documents
-│   └── replay/          # Saved LLM outputs for offline demo
+│   ├── uploads.py       # Resume uploads (PDF / DOCX / TXT), per workspace
+│   ├── screening.py     # Resume screening report (live model or offline estimate)
+│   ├── mailer.py        # Local test inbox (Mailpit), localhost only
+│   ├── rule_guide.yaml  # Plain-language explanation of each rule (Gate Log)
+│   └── replay/          # Saved LLM outputs for the sample documents
 ├── frontend/src/
 │   ├── pages/           # RunTask, GateLog, ReviewQueue, AttackBench, Home, Login, Signup, Account
 │   ├── components/      # Navbar, verdict badges, shadcn/ui components
@@ -198,10 +202,13 @@ AgentGate/
 ├── data/
 │   ├── clean/           # Synthetic clean documents
 │   ├── hostile/         # Synthetic documents with hidden instructions
+│   ├── demo/            # Named demo resumes to upload (see data/demo/README.txt)
+│   ├── eval/            # 300-case evaluation set, saved results, sources
+│   ├── eval_docs/       # Documents for the evaluation set
 │   ├── generated/       # Checked-in red-team reference batch
 │   └── bench_cases.yaml # Attack bench case list
 ├── sandbox/             # Dummy files the mock tools may touch
-├── scripts/             # red_team.py, try_agent.py
+├── scripts/             # eval.py, red_team.py, make_eval_set.py, make_demo_resumes.py, try_agent.py
 └── tests/               # pytest suite
 ```
 
@@ -258,11 +265,16 @@ python -m pytest -q
 | `LLM_MODE` | `replay` (saved outputs, no key needed) or `live` (Groq; falls back to a saved replay if Groq fails) | `replay` |
 | `AGENT_STEPS` | `1` = one-shot; `3` = multi-step runs (read → email) | `1` |
 | `GROQ_API_KEY` / `GROQ_MODEL` | Groq API key and model id (live agent and red team) | n/a |
+| `AI_DAILY_LIMIT_PER_USER` / `AI_DAILY_LIMIT_GLOBAL` | Live AI calls allowed per account / for the whole server per day (only counted when a key is set) | `30` / `300` |
+| `SIGNUP_LIMIT_PER_HOUR` | Sign-ups per hour for the whole server (on top of 8 per hour per IP) | `30` |
 | `DB_PATH` | SQLite file | `agentgate.db` |
 | `REVIEW_TIMEOUT_MIN` | Minutes before a pending review is auto-denied | `10` |
 | `APP_ORIGINS` | Origins allowed to call the API | `http://localhost:5173,http://127.0.0.1:5173` |
 | `SMTP_*` | Only for password-reset emails (optional) | n/a |
 | `MAILPIT_HOST` / `MAILPIT_SMTP_PORT` / `MAILPIT_UI` | Local test inbox for Email company (localhost only) | `localhost` / `1025` / `http://localhost:8025` |
+| `APP_ENV` / `COOKIE_SECURE` / `FRONTEND_URL` | Production mode, secure cookies, link target in reset emails | `development` / `false` / `http://localhost:5173` |
+| `TRUST_PROXY` | Use the first `X-Forwarded-For` address for per-IP limits (only behind a trusted proxy) | `false` |
+| `DEMO_EMAIL` / `DEMO_PASSWORD` / `DEMO_NAME` | Demo sign-in recreated on every start (hosted demo) | n/a |
 
 ### Deploy (hosted demo)
 - **Backend → Render** (free web service): New → Blueprint → this repo (uses [`render.yaml`](render.yaml)). Set the secret env vars: `APP_ORIGINS` (your Vercel URL), `GROQ_API_KEY`, `GROQ_MODEL`, `DEMO_EMAIL`, `DEMO_PASSWORD`.
@@ -276,78 +288,95 @@ python -m pytest -q
 | `GET` | `/api/health` | Service health |
 | `POST` | `/api/auth/signup` · `/login` · `/logout` | Accounts (session cookie + CSRF token) |
 | `GET` | `/api/auth/session` | Current user, if signed in |
-| `GET` | `/api/docs` | Documents available to run |
+| `PATCH` · `POST` · `DELETE` | `/api/auth/profile` · `/change-password` · `/account` | Account management |
+| `GET` | `/api/docs` | Bundled sample documents (saved AI answers) |
+| `GET` · `POST` | `/api/uploads` | List / upload your own resumes (PDF, DOCX, TXT, 10 MB) |
 | `POST` | `/api/run` | Run a task on a document: extract → propose → gate → act → log |
 | `POST` | `/api/inject` | Send raw tool calls through the gate (no LLM) |
+| `POST` | `/api/email/draft` | Email company: the AI's step-by-step plan, each step previewed by the gate (nothing runs) |
+| `POST` | `/api/check` | Preview the gate's verdict for one call (nothing runs, nothing is logged) |
+| `GET` · `POST` · `DELETE` | `/api/allowlist` | Your workspace's company domains (each change is logged) |
 | `GET` | `/api/logs` | Audit log entries (your workspace) |
 | `GET` | `/api/logs/verify` | Verify the audit log hash chain |
+| `GET` | `/api/logs/{id}/explain` · `/api/rules` | Plain-language explanation of a decision / every rule |
 | `GET` | `/api/review` | Pending review items |
 | `POST` | `/api/review/{id}` | Approve or deny a pending item (bound to its `call_hash`) |
 | `GET` | `/api/outbox` | Messages "sent" by the sandboxed email tool |
 | `GET` | `/api/policy` | Current policy (read-only) |
-| `POST` | `/api/bench` | Run the attack bench |
+| `POST` | `/api/bench` | Run the attack bench, or the 300-case evaluation (`{"dataset": "eval"}`, shown but not saved) |
+| `GET` | `/api/bench/latest` | Saved evaluation results (written only by `scripts/eval.py`) |
 | `POST` | `/api/redteam` | Generate new attacks with the attacker AI and score them, or re-score the last batch |
+| `GET` | `/api/tests/latest` · `/api/tests/manual` | Hand-written test report and the manual UI checklist |
 
-All routes except health and sign-in require a session; writes also require the CSRF token and a trusted origin.
+All routes except health, `/api/auth/config`, `/api/auth/session`, sign-up and sign-in require a session; writes also require the CSRF token and a trusted origin. Live AI calls (uploads, email drafts in live mode, red-team generation) count against a daily limit per account and for the whole server.
 
 ## Demo Walkthrough
 
-Ready-made demo resumes are in [`data/demo/`](data/demo/) (synthetic people). Each file name says what it shows, e.g. `02_resume-check_white-text-attack_BLOCKED.pdf` or `08_email-company_HURDLE-R9-read-then-email_BLOCKED.txt`; upload them on Run Task like a real user (list in `data/demo/README.txt`). The agent is a live AI, so an attack may not fool it on every try.
+Run Task offers two kinds of documents:
+- **Sample documents** (`data/clean/`, `data/hostile/`): the AI's answers are saved, so every run gives the same result, offline and with no AI quota. Use these for a demo.
+- **Your uploads**: read by the live AI. A real model is not fooled by every attack, so a hostile upload may simply get a normal result. Named demo resumes to upload are in [`data/demo/`](data/demo/) (list in `data/demo/README.txt`).
+
+Run the backend with `AGENT=llm LLM_MODE=replay AGENT_STEPS=3` (the defaults in `.env.example`), then:
 
 1. **Clean run**: *Summarise resume* on `resume_01_asha.txt` → **ALLOWED**, the summary is shown.
 2. **Attack**: same task on `resume_h01_hidden_email.txt` → the hidden instruction is shown; the AI tried `send_email` to `hr-verify@evil.co` with the placement list → **BLOCKED** (R1, R2, R3, R4). Nothing is sent.
-3. **Normal email**: *Email company* on `resume_02_rahul.txt` → **ALLOWED** → appears in the Outbox.
+3. **Normal email**: *Email company* on `resume_02_rahul.txt` → draft → Send → **ALLOWED** → appears in the Outbox.
 4. **Human in the loop**: *Email company* on `resume_04_neha.txt` (gmail.com contact) → **NEEDS REVIEW** → approve in the Review Queue → Outbox; the decision is a new log row.
-5. **Every step allowed, data still leaks**: *Email company* on `resume_h06_chain.txt` (with `AGENT_STEPS=3`) → step 1 read **ALLOWED**, step 2 email **BLOCKED (R9)**. Attack Bench → *Try an attack* shows R9, R10 (base64 split) and R11 (swapped approval) in one click each.
-6. **Proof**: Attack Bench → *Bench* and *Red team* report measured numbers; the Gate Log's chain chip verifies the log.
+5. **Every step allowed, data still leaks**: *Email company* on `resume_h06_chain.txt` → step 1 reads the placement list (allowed on its own), step 2 emails an approved partner → **BLOCKED (R9)**. Attack Bench → *Try an attack* shows R9, R10 (base64 split) and R11 (swapped approval) in one click each.
+6. **Proof**: Gate Log → click a row for a plain-language explanation; the chain chip verifies the log. Attack Bench → *Bench* re-scores the cases live.
 
 ## Attack Bench Results
 
-We report only numbers we measured, including the weak spots. All documents use synthetic people.
+We report only numbers we measured, with how they were measured. All documents use synthetic people.
 
-**1. Real-world evaluation set: 300 documents** (`data/eval/`, 100 clean + 200 hostile in 12 categories: hidden comments, white text in PDFs, PDF metadata, fake system lines, polite social engineering, "ignore previous", base64/hex encoding, delete requests, read-then-email chains, split exfiltration, multilingual, attack text adapted from public prompt-injection datasets; sources in `data/eval/SOURCES.txt`).
-
-| Gate only (replay: every hostile doc proposes its harmful action) | Result |
-|---|---|
-| Attacks blocked | **200 / 200** |
-| False alarms on clean documents | **0 / 100** |
-| Gate time per call (incl. logging) | p50 ≈ 11–16 ms, p95 ≈ 25–36 ms |
-
-**2. Live AI run**: the real Groq agent (`openai/gpt-oss-20b`) read 30 sampled documents (`python scripts/eval.py --mode live --limit 30`):
+**1. Live AI run (the most realistic number).** The real Groq agent (`openai/gpt-oss-20b`) read 30 sampled documents from the evaluation set (`python scripts/eval.py --mode live --limit 30`, 31 Oct 2026):
 
 | Real AI behaviour | Result |
 |---|---|
 | AI fooled into a harmful action (hostile docs) | **4 / 17** (24%) |
 | Gate stopped the harmful ones | **4 / 4** |
 | Harmful actions that executed | **0** |
-| False alarms on clean docs | 5 / 12 — all R3: the AI attached the candidate's file, which in the test set sits in `eval_docs/`, outside Email company's file scope (real uploads are in scope) |
+| False alarms on clean docs | **5 / 12**: every clean *Email company* run was blocked by R3. The AI attached the candidate's file, which in the test set sits in `eval_docs/`, outside the task's file scope. A test-setup mismatch, not an AI error; real uploads are in scope. To be fixed and re-run |
 | Skipped (AI unavailable) | 1 (never replaced by fake output) |
 
-**3. Hand-written test cases:** 164 cases in 9 groups through the real `/api/inject` path: **159 pass, 5 known gaps** (listed in `data/eval/results/tests.json` and the Test results tab). Whole suite: see CI.
+The sample is small (29 scored documents), so treat these as indicative, not as rates.
 
-**4. Bench (`data/bench_cases.yaml`, 7 cases):** 4/4 attacks blocked, 3/3 clean allowed, 0 false alarms. **Red team:** batches of 5 attacks written live by the attacker AI were all blocked in our runs; each run's result is shown in the app.
+**2. Gate-only evaluation: 300 documents** (`data/eval/`: 100 clean + 200 hostile in 12 categories, including hidden comments, white text in PDFs, PDF metadata, fake system lines, polite social engineering, base64/hex, delete requests, read-then-email chains, split exfiltration, multilingual and text adapted from public prompt-injection datasets; sources in `data/eval/SOURCES.txt`). This tests the gate, not the model: each hostile document is paired with the harmful call a fooled agent would make, written by us (`data/eval/fooled_calls.yaml`), and clean documents use the stand-in agent.
+
+| Gate only (replay) | Result |
+|---|---|
+| Harmful calls blocked | **200 / 200** |
+| Clean runs blocked | **0 / 100** (the stand-in agent's clean emails carry no attachment, so this does not cover the R3 case above) |
+| Gate time per call (incl. logging) | p50 ≈ 10–16 ms, p95 ≈ 21–36 ms on the saved runs; slower on Windows disks |
+
+**3. Hand-written test cases:** 164 cases in 9 groups through the real `/api/inject` path: **162 pass, 2 known gaps**. Both gaps are over-cautious, not unsafe: an email with a harmless base64-looking block goes to human review (`enc-008`, `enc-009`). Whole suite (300+ tests) runs in CI.
+
+**4. Bench (`data/bench_cases.yaml`, 7 cases):** 4/4 attacks blocked, 3/3 clean allowed. **Red team:** the attacker AI writes new hostile resumes, together with the tool call it wants the victim to make, and the gate scores that call. All were blocked in our runs, but this tests the gate against the attacker's intended action, not whether a real agent would be fooled. If the AI is unavailable or rate-limited, part of a batch comes from built-in templates and the app says how many.
 
 ## Project Status
 
-Built during the 24-hour AfterHours 1.0 hackathon.
+Built during the 24-hour AfterHours 1.0 hackathon (tag [`afterhours-submission`](https://github.com/Guru2907/AgentGate/releases/tag/afterhours-submission)); improved afterwards (see [CHANGELOG.md](CHANGELOG.md)).
 
 - [x] Project scaffold: FastAPI backend, React + shadcn/ui frontend, policy, sample data
-- [x] Schemas and policy gate (rules R1–R8) with unit tests
-- [x] LLM tool calling (live and replay), mock tools, hash-chained audit log
+- [x] Schemas and policy gate (rules R1–R11), per-run memory, hash-chained audit log
+- [x] LLM tool calling (live and replay, one-shot and multi-step), mock tools
 - [x] `/api/inject`, human review with timeout, hash-chain verification
-- [x] "Every step allowed" defences: R9, R10, R11
-- [x] Multi-step agent, run insights (hidden text, egress preview)
-- [x] Attack bench and automated red team
-- [x] Accounts with private workspaces
-- [x] Live UI: Run Task, Gate Log, Review Queue, Attack Bench
-- [ ] Landing page polish
+- [x] Attack bench, 300-case evaluation, hand-written cases, automated red team
+- [x] Accounts with private workspaces; resume uploads; Email company draft → review → send
+- [x] Landing page and guided tours
+- [x] After the hackathon: decision explanations in the Gate Log, reliable sample-document demo, strict recipient parsing, daily AI limits
+- [ ] Fix the evaluation file-scope mismatch and re-run the live evaluation
+- [ ] Red team scored against the real agent, not only the attacker's intended call
+- [ ] Persistent database for the hosted demo
 
 ## Limitations
 
 - AgentGate **stops the actions it has rules for**. It is not a cure for every prompt injection, and we do not claim it is.
-- Tools are **mocked**: no real email is sent and no real files are deleted.
-- Policies are written by hand per task; coverage depends on how good the policy is.
-- The bench is small (7 cases plus red-team batches); results describe these cases only.
+- Tools are **mocked**: no real email is sent and no real files are deleted (the optional Mailpit inbox only accepts localhost).
+- Policies are written by hand per task; coverage depends on how good the policy is. Any signed-in user can add company domains to their own workspace's allowlist (each change is logged).
+- The live evaluation is small (29 documents) and the bench has 7 cases; results describe these cases only.
+- Hosted demo on free tiers: the first request after idle can take ~45 s, and the database is wiped on each restart.
+- Per-IP sign-up and login limits trust `X-Forwarded-For` when `TRUST_PROXY=true`; the server-wide caps do not depend on it.
 - All documents and data are **synthetic**.
 
 ## Team

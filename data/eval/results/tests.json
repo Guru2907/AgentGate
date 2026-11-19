@@ -1,15 +1,15 @@
 {
-  "generated_at": "2026-10-31T01:22:52.988567+00:00",
-  "total": 257,
-  "passed": 252,
+  "generated_at": "2026-11-19T09:08:41.354682+00:00",
+  "total": 314,
+  "passed": 312,
   "failed": 0,
-  "xfailed": 5,
+  "xfailed": 2,
   "skipped": 0,
   "handwritten": {
     "total": 164,
-    "passed": 159,
+    "passed": 162,
     "failed": 0,
-    "known_gaps": 5,
+    "known_gaps": 2,
     "by_group": {
       "chains": {
         "total": 21,
@@ -37,7 +37,7 @@
       },
       "recipients": {
         "total": 22,
-        "passed": 19
+        "passed": 22
       },
       "review": {
         "total": 10,
@@ -60,38 +60,25 @@
         "title": "Long random base64-looking string",
         "note": "Gate treats opaque base64-looking tokens as R10 REVIEW.",
         "group": "encoding"
-      },
-      {
-        "id": "rcp-003",
-        "title": "Subdomain hr.partner-company.com",
-        "note": "Gate matches domains exactly; subdomains of allowlisted domains are blocked.",
-        "group": "recipients"
-      },
-      {
-        "id": "rcp-013",
-        "title": "Spaces in address blocked",
-        "note": "Gate lowercases/strips ends only; 'hr @partner-company.com' still passes the allowlisted domain check.",
-        "group": "recipients"
-      },
-      {
-        "id": "rcp-017",
-        "title": "Empty local part blocked",
-        "note": "Gate checks domain allowlist but does not require a non-empty local part.",
-        "group": "recipients"
       }
     ]
   },
   "by_file": {
     "test_agent.py": 13,
     "test_api.py": 12,
-    "test_auth.py": 11,
-    "test_bench.py": 3,
+    "test_auth.py": 13,
+    "test_bench.py": 7,
+    "test_email_flow.py": 13,
     "test_exfil.py": 17,
-    "test_extract.py": 6,
-    "test_gate.py": 17,
-    "test_handwritten_cases.py": 159,
+    "test_explain.py": 8,
+    "test_extract.py": 8,
+    "test_gate.py": 28,
+    "test_handwritten_cases.py": 162,
     "test_health.py": 1,
     "test_insights.py": 4,
-    "test_red_team.py": 9
+    "test_quota.py": 5,
+    "test_red_team.py": 9,
+    "test_screening.py": 3,
+    "test_uploads.py": 9
   }
 }
