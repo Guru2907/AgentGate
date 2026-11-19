@@ -403,7 +403,8 @@ export function StoreProvider({ children }: { children: ReactNode }) {
           })
           .catch((err: Error) => {
             dispatch({ type: 'UPDATE_RUN_SESSION', patch: { phase: { kind: 'idle' } } })
-            dispatch({ type: 'SET_BACKEND', online: false })
+            // The server answered (e.g. 429 daily AI limit): it is online, just show its message.
+            if (!(err instanceof ApiError)) dispatch({ type: 'SET_BACKEND', online: false })
             toast.error(err.message || 'Backend request failed')
           })
         return

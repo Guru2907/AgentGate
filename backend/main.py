@@ -273,6 +273,38 @@ def _enforce_limit(key: str, limit: int, window_seconds: int) -> None:
         )
 
 
+def _env_int(name: str, default: int) -> int:
+    try:
+        return max(0, int(os.getenv(name, str(default))))
+    except ValueError:
+        return default
+
+
+def _charge_ai(session: dict, cost: int = 1) -> None:
+    """Daily AI budget, per user and for the whole server, so nobody can spend the free model quota.
+
+    Charged only when a live model call will really happen (a key is configured). Limits come from
+    AI_DAILY_LIMIT_PER_USER and AI_DAILY_LIMIT_GLOBAL; both count by account, never by IP.
+    """
+    if not os.getenv("GROQ_API_KEY", "").strip():
+        return
+    buckets = (
+        (f"ai-user:{session['id']}", _env_int("AI_DAILY_LIMIT_PER_USER", 30), "your account"),
+        ("ai-global", _env_int("AI_DAILY_LIMIT_GLOBAL", 300), "this demo server"),
+    )
+    for key, limit, who in buckets:
+        for _ in range(max(1, cost)):
+            allowed, retry_after = db.consume_rate_limit(key, limit, 86400)
+            if not allowed:
+                hours = max(1, round(retry_after / 3600))
+                raise HTTPException(
+                    status_code=429,
+                    detail=(f"Daily AI limit reached for {who}. Try again in about {hours} h, "
+                            "or use the sample documents, which need no AI."),
+                    headers={"Retry-After": str(retry_after)},
+                )
+
+
 @app.get("/api/auth/config")
 def get_auth_config() -> dict:
     return {"password_reset_enabled": auth.password_reset_enabled()}
@@ -297,6 +329,8 @@ def get_auth_session(request: Request, response: Response) -> dict:
 @app.post("/api/auth/signup", status_code=201)
 def signup(body: SignupRequest, request: Request, response: Response) -> dict:
     _enforce_limit(auth.rate_limit_key("signup-ip", _client_ip(request)), 8, 3600)
+    # IP headers can be forged by calling the backend directly, so also cap sign-ups for the whole server.
+    _enforce_limit("signup-global", _env_int("SIGNUP_LIMIT_PER_HOUR", 30), 3600)
     try:
         user = db.create_user(body.full_name, body.email, auth.hash_password(body.password))
     except sqlite3.IntegrityError as exc:
@@ -515,6 +549,8 @@ def run_task(req: RunRequest, session: dict = Depends(auth.require_write_user)) 
 
     workspace_id = session["workspace_id"]
     analysis = extract.analyze_document(_resolve_doc(req.doc, workspace_id))
+    if req.doc.startswith("uploads/") or os.getenv("LLM_MODE", "replay").strip().lower() == "live":
+        _charge_ai(session)  # uploads always ask the live AI; samples only in live mode
     text = analysis.text
     hidden_findings = list(analysis.hidden_findings)
     instruction_text = insights.hidden_instructions(text)
@@ -803,7 +839,7 @@ def bench_latest(
 @app.post("/api/redteam")
 def run_redteam(
     req: RedTeamRequest = Body(default_factory=RedTeamRequest),
-    _: dict = Depends(auth.require_write_user),
+    session: dict = Depends(auth.require_write_user),
 ) -> dict:
     """Invent N hostile docs (or re-score the saved batch) and run them through the bench (#10).
 
@@ -811,6 +847,8 @@ def run_redteam(
     """
     from backend import redteam
 
+    if not req.score_only and not req.templates:
+        _charge_ai(session, cost=-(-req.n // redteam.CHUNK))  # one unit per model request
     try:
         return redteam.run(n=req.n, score_only=req.score_only, use_templates=req.templates)
     except FileNotFoundError as exc:
@@ -955,6 +993,8 @@ def draft_email(req: EmailDraftRequest, session: dict = Depends(auth.require_wri
     )
     if req.note:
         request += f" Note from the recruiter: {req.note}"
+    if req.doc.startswith("uploads/") or os.getenv("LLM_MODE", "replay").strip().lower() == "live":
+        _charge_ai(session)  # same rule as _plan_email: samples use saved answers unless live
     try:
         steps, agent_mode = _plan_email(text, req.doc, request, policy)
     except Exception as exc:
