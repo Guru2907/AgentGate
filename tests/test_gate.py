@@ -154,3 +154,27 @@ def test_malformed_calls_are_blocked(policy, raw):
     d = check(raw, "email_company", policy)
     assert d.verdict == "BLOCK"
     assert "R6_MALFORMED_CALL" in d.rules
+
+
+@pytest.mark.parametrize(
+    "to, verdict",
+    [
+        ("hr@partner-company.com", "ALLOW"),
+        ("desk@hr.partner-company.com", "ALLOW"),  # subdomain, policy opts in
+        ("  HR@Partner-Company.com ", "ALLOW"),  # case and outer spaces are normalised
+        ("talent@gmail.com", "REVIEW"),
+        ("hr @partner-company.com", "BLOCK"),  # space inside the address
+        ("@partner-company.com", "BLOCK"),  # empty local part
+        ("a@b@partner-company.com", "BLOCK"),  # two @
+        ("hr@partner-company.com.evil.co", "BLOCK"),  # trusted name as a prefix
+        ("hr@evilpartner-company.com", "BLOCK"),  # trusted name as a suffix without a dot
+        ("hr@partner-company.com, x@evil.co", "BLOCK"),  # two recipients in one field
+        ("hr@partner-company", "BLOCK"),  # no top-level domain
+    ],
+)
+def test_recipient_must_be_one_well_formed_allowlisted_address(policy, to, verdict):
+    call = {"tool": "send_email", "args": {"to": to, "subject": "s", "body": "b"}}
+    decision = check(call, "email_company", policy)
+    assert decision.verdict == verdict
+    if verdict != "ALLOW":
+        assert "R2_RECIPIENT_NOT_ALLOWED" in decision.rules

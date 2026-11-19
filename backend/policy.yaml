@@ -12,6 +12,7 @@ tasks:
     recipients:
       allow_domains: [college.edu, partner-company.com]
       review_domains: [gmail.com]          # valid but risky -> REVIEW
+      allow_subdomains: true               # hr.partner-company.com counts as partner-company.com (exact suffix, not look-alikes)
     files:
       # placement_list is in scope for read (chain-attack demo); R4 still blocks
       # attaching it, and R9 blocks emailing after a sensitive read in the same run.
